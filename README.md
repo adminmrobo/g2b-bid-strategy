@@ -75,10 +75,32 @@ git add store && git commit -m "rekey" && git push
 
 ```
 collector/   g2b_api.py(API) · summarize.py(입찰 요약) · crypto_store.py(암호화) · run.py(수집·빌드)
-docs/        index.html · app.js — GitHub Pages 화면 (data.bin은 Actions가 만듦)
+docs/        analysis.js(계산 전용) · app.js(화면 전용) · index.html(디자인) — GitHub Pages 화면
+             (data.bin은 Actions가 만듦)
 store/       암호화된 일별 낙찰 요약·월별 공고 (manifest.json만 평문: 파일 목록과 건수)
-tests/       모의 API와 파이프라인 테스트 (python tests/test_pipeline.py)
+tests/       모의 API·파이프라인 테스트(python tests/test_pipeline.py), 계산 테스트(node tests/test_analysis.js)
 ```
+
+## 화면만 바꾸기 (예: 연구실 콘셉트)
+
+계산은 `docs/analysis.js`, 화면은 `docs/app.js`와 `docs/index.html`이 맡습니다. 화면을 새로 꾸밀 때는 이 두 파일만 바꾸고, `analysis.js`·`collector/`·`store/`·워크플로는 그대로 둡니다. 데이터 수집과 비밀번호 잠금은 계속 동작합니다.
+
+`analysis.js`가 주는 함수(전역 `G2B`):
+
+| 함수 | 돌려주는 것 |
+| --- | --- |
+| `G2B.prepare(data)` | 복호화한 데이터를 입찰·진행공고 객체 목록으로 |
+| `G2B.categoryFilter(keys, custom)` · `G2B.periodRange(last, months)` | 업종·기간 필터 |
+| `G2B.strategy(bids, {floor, cost})` | 확률 곡선, 추천 3종(best·safe·profit), 성적표(score), 하한선 통계 |
+| `G2B.calc({bss, fl, span, x}, bids)` | 투찰금액, 하한 미달 위험, 하한가 범위 |
+| `G2B.compete(bids)` | 참가업체 수·기준선·HHI·월별·금액대별·상위 업체·기관별 |
+| `G2B.fail(bids)` | 유찰률·재공고·월별·금액대별·기관별·최근 유찰 |
+| `G2B.upcoming(bids, notices, today)` | 진행 공고 참여 추천 순위 |
+| `G2B.mine(bids)` | 우리 회사 참여·1순위·하한 미달·아깝게 놓침 |
+
+## 수집 진행 상황 보기
+
+Actions → 실행 기록 → collect → *수집 (이어받기)* 에서 하루치가 큰 날은 25페이지마다 `… 75/188 페이지` 처럼 진행 줄이 나옵니다. 실행 마지막 줄의 `남은 예상 호출 … → 약 N일`이 1년치 적재가 끝날 때까지 남은 날수이며, 같은 내용이 앱 화면 아래쪽에도 표시됩니다.
 
 개인정보(대표자명·담당자명·연락처)는 저장하지 않습니다. 업체는 상호와 사업자번호만 남깁니다.
 

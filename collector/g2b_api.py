@@ -25,13 +25,14 @@ class ApiError(Exception):
 
 
 class Client:
-    def __init__(self, service_key, session=None, sleep=0.05, budget=8000):
+    def __init__(self, service_key, session=None, sleep=0.05, budget=8000, progress=None):
         # 포털의 Encoding 키든 Decoding 키든 받아서 디코딩 키로 통일 (requests가 다시 인코딩)
         self.key = requests.utils.unquote(service_key.strip())
         self.s = session or requests.Session()
         self.sleep = sleep
         self.budget = budget
         self.calls = 0
+        self.progress = progress  # progress(page, pages): 큰 하루치를 받는 동안 진행 상황 출력
 
     # ------------------------------------------------------------ 저수준
     def _get(self, op, params):
@@ -92,9 +93,13 @@ class Client:
         if total and 0 < len(items) < min(rows, total):  # 서버 최대 페이지 크기가 더 작음
             rows = len(items)
         pages = -(-total // rows) if total else 1
+        if self.progress and pages > 1:
+            self.progress(1, pages)
         for p in range(2, pages + 1):
             it, _ = self._get(op, {**params, "numOfRows": rows, "pageNo": p})
             out.extend(it)
+            if self.progress and (p % 25 == 0 or p == pages):
+                self.progress(p, pages)
         return out, total
 
     # ------------------------------------------------------------ 오퍼레이션

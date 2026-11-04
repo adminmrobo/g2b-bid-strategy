@@ -12,6 +12,7 @@ import calendar
 import datetime as dt
 import json
 import os
+import re
 import sys
 import time
 from zoneinfo import ZoneInfo
@@ -80,7 +81,13 @@ def env(name, required=True):
 def collect(days_back, budget, max_minutes, refresh_days, notice_months, session=None):
     pw = env("APP_PASSWORD")
     my = [b for b in env("MY_BIZNO", False).split(",") if b.strip()]
-    cli = Client(env("SERVICE_KEY"), session=session, budget=budget)
+    cur = {"label": ""}
+
+    def progress(page, pages):
+        if pages >= 25:
+            log(f"    {cur['label']} … {page}/{pages} 페이지 (호출 {cli.calls})")
+
+    cli = Client(env("SERVICE_KEY"), session=session, budget=budget, progress=progress)
     man = load_manifest()
     t0 = time.time()
     now = dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M")
@@ -88,13 +95,17 @@ def collect(days_back, budget, max_minutes, refresh_days, notice_months, session
     deadline = t0 + max_minutes * 60
 
     def do_scsbid(div, d):
+        cur["label"] = f"낙찰 {DIVS[div]} {d}"
+        c0 = cli.calls
         rows, total = cli.scsbid_day(f"{d:%Y%m%d}", div)
         bids = summarize_scsbid(rows, my)
         p = scsbid_path(div, d)
-        changed = cs.write_if_changed(p, bids, pw, man, {"n": len(bids), "rows": total, "at": now}, key=rel(p))
+        changed = cs.write_if_changed(p, bids, pw, man, {"n": len(bids), "rows": total, "at": now,
+                                                         "calls": cli.calls - c0}, key=rel(p))
         log(f"  낙찰 {DIVS[div]} {d}  업체행 {total:>7,}  입찰 {len(bids):>5,}  {'변경' if changed else '동일'}  (호출 {cli.calls})")
 
     def do_notice(y, m):
+        cur["label"] = f"공고 {y}-{m:02d}"
         last = calendar.monthrange(y, m)[1]
         end = min(dt.date(y, m, last), td)
         rows, total = cli.notices(f"{y:04d}{m:02d}010000", f"{end:%Y%m%d}2359")
@@ -133,6 +144,7 @@ def collect(days_back, budget, max_minutes, refresh_days, notice_months, session
 
     done = 0
     stop_reason = "완료"
+    remaining = list(jobs)
     try:
         for kind, arg, _ in jobs:
             if time.time() > deadline:
@@ -141,16 +153,33 @@ def collect(days_back, budget, max_minutes, refresh_days, notice_months, session
             try:
                 do_notice(*arg) if kind == "notice" else do_scsbid(*arg)
                 done += 1
+                remaining.pop(0)
             except ApiError as e:
                 log(f"  ! {kind} {arg}: {e}")
+                remaining.pop(0)
             if done % 20 == 0:
                 save_manifest(man)
     except QuotaExceeded as e:
         stop_reason = f"호출 한도 ({e})"
     save_manifest(man)
-    left = len(jobs) - done
-    log(f"[collect] {stop_reason} · 처리 {done} · 남음 {left} · API 호출 {cli.calls} · {time.time() - t0:.0f}초")
-    status = {"last_run": now, "calls": cli.calls, "done": done, "left": left, "stop": stop_reason}
+    left = len(remaining)
+    # 남은 백필 예상: 업무구분별 하루치 평균 호출 수 × 남은 날짜 ÷ 하루 처리 능력
+    avg = {}
+    for k, e in man.items():
+        mm = re.search(r"scsbid/(\d+)/", k)
+        if mm and isinstance(e, dict) and e.get("calls"):
+            avg.setdefault(mm.group(1), []).append(e["calls"])
+    avg = {d: sum(v) / len(v) for d, v in avg.items()}
+    est = sum(avg.get(a[0], 50) for k, a, _ in remaining if k == "scsbid") + 60 * sum(1 for k, *_ in remaining if k == "notice")
+    mins = max(1e-9, (time.time() - t0) / 60)
+    cap = min(budget, cli.calls / mins * max_minutes) if cli.calls > 20 else budget
+    eta = 0 if not left else max(1, -(-int(est) // max(1, int(cap))))
+    left_days = len({a[1] for k, a, _ in remaining if k == "scsbid"})
+    log(f"[collect] {stop_reason} · 처리 {done} · 남음 {left}(낙찰 {left_days}일치) · API 호출 {cli.calls} · "
+        f"{time.time() - t0:.0f}초 · 남은 예상 호출 {int(est):,} → 약 {eta}일")
+    status = {"last_run": now, "calls": cli.calls, "done": done, "left": left, "left_days": left_days,
+              "est_calls": int(est), "eta_days": eta, "stop": stop_reason,
+              "avg_calls_per_day": {DIVS[d]: round(v, 1) for d, v in avg.items()}}
     man["_status"] = status
     save_manifest(man)
     return status
