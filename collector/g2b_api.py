@@ -6,7 +6,10 @@
 - 일일 트래픽 10,000회(기능별)
 """
 import json
+import os
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -25,24 +28,39 @@ class ApiError(Exception):
 
 
 class Client:
-    def __init__(self, service_key, session=None, sleep=0.05, budget=8000, progress=None):
+    """workers: 한 날짜의 여러 페이지를 동시에 받는 개수(기본 8, 환경변수 API_WORKERS).
+    조달청 허용치는 초당 30건이므로 8개 동시 요청은 한도 안이다."""
+
+    def __init__(self, service_key, session=None, sleep=0.05, budget=8000, progress=None, workers=None):
         # 포털의 Encoding 키든 Decoding 키든 받아서 디코딩 키로 통일 (requests가 다시 인코딩)
         self.key = requests.utils.unquote(service_key.strip())
-        self.s = session or requests.Session()
+        self._shared = session            # 테스트용 모의 세션(있으면 모든 스레드가 공유)
+        self._local = threading.local()   # 실제 요청은 스레드마다 Session 하나
+        self._lock = threading.Lock()
         self.sleep = sleep
         self.budget = budget
         self.calls = 0
         self.progress = progress  # progress(page, pages): 큰 하루치를 받는 동안 진행 상황 출력
+        self.workers = max(1, int(workers or os.environ.get("API_WORKERS") or 8))
+
+    @property
+    def s(self):
+        if self._shared is not None:
+            return self._shared
+        if not hasattr(self._local, "s"):
+            self._local.s = requests.Session()
+        return self._local.s
 
     # ------------------------------------------------------------ 저수준
     def _get(self, op, params):
-        if self.calls >= self.budget:
-            raise QuotaExceeded(f"이번 실행 호출 예산 {self.budget}회 소진")
         q = {"serviceKey": self.key, "type": "json", **params}
         last = None
         for attempt in range(5):
             try:
-                self.calls += 1
+                with self._lock:
+                    if self.calls >= self.budget:
+                        raise QuotaExceeded(f"이번 실행 호출 예산 {self.budget}회 소진")
+                    self.calls += 1
                 r = self.s.get(f"{ENDPOINT}/{op}", params=q, timeout=90)
                 txt = r.text.strip()
                 if self.sleep:
@@ -95,11 +113,24 @@ class Client:
         pages = -(-total // rows) if total else 1
         if self.progress and pages > 1:
             self.progress(1, pages)
-        for p in range(2, pages + 1):
+        if pages < 2:
+            return out, total
+        done = [1]
+
+        def one(p):
             it, _ = self._get(op, {**params, "numOfRows": rows, "pageNo": p})
-            out.extend(it)
-            if self.progress and (p % 25 == 0 or p == pages):
-                self.progress(p, pages)
+            with self._lock:
+                done[0] += 1
+                d = done[0]
+            if self.progress and (d % 25 == 0 or d == pages):
+                self.progress(d, pages)
+            return it
+
+        # 2페이지부터 동시에 받는다. 결과는 페이지 순서대로 합친다.
+        # 한 페이지라도 실패(한도 초과 등)하면 이 날짜 전체를 실패로 처리 → 다음 실행에서 다시 받음
+        with ThreadPoolExecutor(max_workers=min(self.workers, pages - 1)) as ex:
+            for it in ex.map(one, range(2, pages + 1)):
+                out.extend(it)
         return out, total
 
     # ------------------------------------------------------------ 오퍼레이션
