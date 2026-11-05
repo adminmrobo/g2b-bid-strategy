@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+docs/data.bin
+tests/out_data.bin
+.env

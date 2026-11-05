@@ -11,6 +11,13 @@
   - **진행 공고**: 개찰 전 공고를 예상 참가업체 수로 매긴 참여 추천 순위
   - **내 회사**: 우리 회사 참여·1순위·하한 미달 내역
 
+## 처음 쓰는 사람을 위한 안내 지도
+
+비밀번호를 넣고 처음 열면 **연구실 안내 지도**가 뜹니다. 박사·조수 하루·초파리 연구원·주판봇이 정거장 8개(업종 → 기간 → 확률 곡선 → 성적표 → 투찰금액 계산 → 경쟁·유찰 → 참여할 공고 → 내 회사)를 맡아 안내하고, 정거장을 누르면 실제 화면에서 그 자리를 비추며 따라하기가 시작됩니다. 위쪽 **사용법** 버튼으로 언제든 다시 열 수 있습니다.
+
+- 안내 문구·순서·캐릭터는 `docs/guide.js` 맨 위의 `STOPS` 목록만 고치면 됩니다.
+- 캐릭터 그림은 `docs/img/char/`에 있습니다(캐릭터 팩 `ahnboat_lab_explainer/packs/character` 1.3, 192px). 그림의 저작권은 안상선에게 있습니다.
+
 ## 비밀번호 잠금은 어떻게 동작하나
 
 화면에서 비밀번호만 확인하는 방식은 공개 저장소에서 코드를 열면 풀립니다. 그래서 이 앱은 **데이터 자체를 비밀번호로 암호화**합니다.
@@ -75,7 +82,8 @@ git add store && git commit -m "rekey" && git push
 
 ```
 collector/   g2b_api.py(API) · summarize.py(입찰 요약) · crypto_store.py(암호화) · run.py(수집·빌드)
-docs/        analysis.js(계산 전용) · app.js(화면 전용) · index.html(디자인) — GitHub Pages 화면
+docs/        analysis.js(계산 전용) · app.js(화면 전용) · guide.js(안내 지도) · index.html(디자인)
+             img/char/(캐릭터 그림) — GitHub Pages 화면
              (data.bin은 Actions가 만듦)
 store/       암호화된 일별 낙찰 요약·월별 공고 (manifest.json만 평문: 파일 목록과 건수)
 tests/       모의 API·파이프라인 테스트(python tests/test_pipeline.py), 계산 테스트(node tests/test_analysis.js)

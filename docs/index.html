@@ -13,15 +13,18 @@
   --accent:#0f6b5c; --accent-ink:#ffffff; --accent-soft:#dcefe9; --warn:#b45309; --bad:#b42318; --good:#15803d;
   --chart1:#0f6b5c; --chart2:#c2410c; --chart3:#64748b;
   --mono:"IBM Plex Mono",ui-monospace,monospace; --sans:"IBM Plex Sans KR",system-ui,sans-serif;
+  --c-doc:#7347d6; --c-asst:#c93d7e; --c-fly:#c23a3a; --c-robo:#18808b;
 }
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
   --bg:#121615; --panel:#1a201e; --ink:#e6ebe8; --muted:#9aa5a0; --line:#2c3532; --soft:#222a27;
   --accent:#4fbfa8; --accent-ink:#0c1412; --accent-soft:#1d3a33; --warn:#f59e0b; --bad:#f87171; --good:#4ade80;
-  --chart1:#4fbfa8; --chart2:#fb923c; --chart3:#94a3b8; } }
+  --chart1:#4fbfa8; --chart2:#fb923c; --chart3:#94a3b8;
+  --c-doc:#b07cff; --c-asst:#ff86b8; --c-fly:#ef5b5b; --c-robo:#57d0dc; } }
 :root[data-theme="dark"]{
   --bg:#121615; --panel:#1a201e; --ink:#e6ebe8; --muted:#9aa5a0; --line:#2c3532; --soft:#222a27;
   --accent:#4fbfa8; --accent-ink:#0c1412; --accent-soft:#1d3a33; --warn:#f59e0b; --bad:#f87171; --good:#4ade80;
-  --chart1:#4fbfa8; --chart2:#fb923c; --chart3:#94a3b8; }
+  --chart1:#4fbfa8; --chart2:#fb923c; --chart3:#94a3b8;
+  --c-doc:#b07cff; --c-asst:#ff86b8; --c-fly:#ef5b5b; --c-robo:#57d0dc; }
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.55}
 button,input,select{font:inherit;color:inherit}
@@ -48,7 +51,8 @@ header.top{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg
 .brand{font-weight:700;font-size:17px;letter-spacing:-.01em}
 .brand small{font-weight:400;color:var(--muted);font-size:13px;margin-left:8px}
 .spacer{flex:1}
-.iconbtn{border:1px solid var(--line);background:transparent;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px;color:var(--muted)}
+.iconbtn{border:1px solid var(--line);background:transparent;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px;color:var(--muted);white-space:nowrap}
+@media (max-width:560px){.bar{flex-wrap:wrap;gap:8px}.brand{flex:1 1 100%}.brand small{display:block;margin:2px 0 0}.spacer{display:none}.iconbtn{padding:5px 9px}}
 .filters{display:flex;flex-direction:column;gap:8px;padding:4px 0 12px}
 .row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .row .lbl{font-size:12px;color:var(--muted);width:44px;flex:none}
@@ -102,12 +106,68 @@ td.r,th.r{text-align:right}
 .progress{height:6px;background:var(--soft);border-radius:999px;overflow:hidden;margin-top:6px}
 .progress i{display:block;height:100%;background:var(--accent)}
 .note{font-size:13px;color:var(--muted)}
+/* ---------- 연구실 안내 지도 (guide.js) ---------- */
+body.noscroll{overflow:hidden}
+.lockhi{display:flex;align-items:flex-end;gap:12px;margin-bottom:14px}
+.lockhi img{width:84px;height:84px;flex:none}
+.lockhi .bubble{background:var(--soft);border-radius:12px 12px 12px 2px;padding:8px 12px;font-size:13px;color:var(--ink)}
+.lockhi .bubble b{color:var(--c-asst)}
+#guide{position:fixed;inset:0;z-index:50;display:none;background:var(--bg);overflow-y:auto}
+#guide.open{display:block}
+.gwrap{max-width:1080px;margin:0 auto;padding:28px 16px 48px;position:relative}
+.gclose{position:absolute;right:16px;top:20px;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 12px;cursor:pointer;color:var(--muted)}
+.ghead{display:grid;grid-template-columns:auto 1fr;gap:20px;align-items:center;margin:8px 0 22px}
+.gcast{display:flex;align-items:flex-end}
+.gcast img{width:104px;height:104px;margin-right:-22px}
+.gkicker{margin:0;color:var(--accent);font-weight:600;font-size:13px;letter-spacing:.04em}
+.ghead h2{margin:2px 0 8px;font-size:clamp(20px,3vw,28px);line-height:1.3;word-break:keep-all}
+.gsay{margin:0 0 12px;color:var(--muted);font-size:14px;word-break:keep-all}
+.gbtns{display:flex;flex-wrap:wrap;gap:8px}
+.gbtns .btn.primary{width:auto;margin:0}
+.gmap{position:relative;display:grid;grid-template-columns:repeat(4,1fr);gap:28px 22px;padding:22px;background:var(--panel);border:1px solid var(--line);border-radius:18px;
+  background-image:radial-gradient(color-mix(in srgb,var(--line) 70%,transparent) 1px,transparent 1px);background-size:18px 18px}
+.groute{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}
+.groute path{fill:none;stroke:var(--accent);stroke-width:3;stroke-dasharray:2 9;stroke-linecap:round;opacity:.75}
+.gstop{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 10px 12px;background:var(--panel);border:1px solid var(--line);
+  border-top:4px solid var(--who);border-radius:14px;cursor:pointer;text-align:center;transition:transform .15s,box-shadow .15s}
+.gstop:hover,.gstop:focus-visible{transform:translateY(-3px);box-shadow:0 8px 20px rgba(0,0,0,.12)}
+.gno{position:absolute;top:-16px;left:50%;transform:translateX(-50%);width:30px;height:30px;border-radius:50%;background:var(--who);color:#fff;font-weight:700;display:grid;place-items:center;font-family:var(--mono);box-shadow:0 0 0 4px var(--panel)}
+.gstop img{width:96px;height:96px;margin-top:6px}
+.gtitle{font-weight:600;font-size:15px}
+.gwho{font-size:12px;color:var(--who)}
+/* 2행 뱀 모양: 5~8번은 오른쪽에서 왼쪽으로 */
+.gstop[data-i="4"]{grid-row:2;grid-column:4}.gstop[data-i="5"]{grid-row:2;grid-column:3}
+.gstop[data-i="6"]{grid-row:2;grid-column:2}.gstop[data-i="7"]{grid-row:2;grid-column:1}
+.gnote{font-size:13px;color:var(--muted);margin-top:12px}
+@media (max-width:760px){
+  .ghead{grid-template-columns:1fr}.gcast img{width:76px;height:76px;margin-right:-16px}
+  .gmap{grid-template-columns:1fr 1fr;gap:28px 14px;padding:22px 12px}
+  .gstop[data-i]{grid-row:auto;grid-column:auto}
+  .gstop img{width:76px;height:76px}
+}
+#tspot{position:fixed;z-index:60;display:none;border-radius:12px;pointer-events:none;box-shadow:0 0 0 3px var(--accent),0 0 0 9999px rgba(8,12,11,.58);transition:all .25s ease}
+#tbub{position:fixed;z-index:61;display:none;width:440px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-left:5px solid var(--who);
+  border-radius:14px;padding:12px 14px;box-shadow:0 12px 32px rgba(0,0,0,.25)}
+#tbub{display:none}
+#tbub[style*="block"]{display:grid!important;grid-template-columns:84px 1fr;gap:10px;align-items:start}
+#tbub img{width:84px;height:84px}
+.tmeta{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}
+.tmeta b{color:var(--who)}.tmeta span{font-size:12px;color:var(--muted)}
+#tbub p{margin:4px 0 10px;font-size:14px;line-height:1.6;word-break:keep-all}
+.tbtns{display:flex;flex-wrap:wrap;gap:6px}
+.tbtns .btn{padding:6px 10px;font-size:13px;width:auto;margin:0}
+.tbtns .btn[disabled]{opacity:.4;cursor:default}
+.tbtns .tnext{margin-left:auto}
+#tbub.sheet{left:8px!important;right:8px;bottom:8px;top:auto!important;width:auto!important;grid-template-columns:60px 1fr}
+#tbub.sheet img{width:60px;height:60px}
+@media (prefers-reduced-motion:reduce){#tspot{transition:none}.gstop{transition:none}}
 footer{font-size:12px;color:var(--muted);padding:20px 0 40px}
 </style>
 </head>
 <body>
 <section id="lock">
   <form class="lockbox" id="lockform" autocomplete="off">
+    <div class="lockhi"><img src="img/char/asst_e13.webp" alt="" aria-hidden="true"><div class="bubble"><b>조수 하루</b><br>어서 오세요. 비밀번호를 넣으면 연구실 문이 열려요.</div></div>
     <h1>입찰 전략실</h1>
     <p>내부 전용입니다. 비밀번호를 입력하면 데이터가 열립니다.</p>
     <input id="pw" type="password" inputmode="text" placeholder="비밀번호" aria-label="비밀번호" autofocus>
@@ -122,6 +182,7 @@ footer{font-size:12px;color:var(--muted);padding:20px 0 40px}
       <div class="bar">
         <div class="brand">입찰 전략실<small id="asof"></small></div>
         <div class="spacer"></div>
+        <button class="iconbtn" id="guidebtn" title="안내 지도 열기">사용법</button>
         <button class="iconbtn" id="theme" title="화면 밝기">밝기</button>
         <button class="iconbtn" id="lockbtn">잠그기</button>
       </div>
@@ -155,6 +216,7 @@ footer{font-size:12px;color:var(--muted);padding:20px 0 40px}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="analysis.js"></script>
+<script src="guide.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

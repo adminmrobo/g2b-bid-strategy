@@ -66,7 +66,11 @@ function onLoaded() {
   $('#foot').innerHTML = `데이터: 조달청 공공데이터개방표준서비스(낙찰·입찰공고). 적재 현황 ${esc(cov)}${esc(backfill)}` +
     `<br>확률은 과거 자료로 추정한 값이며 낙찰을 보장하지 않습니다. 투찰은 나라장터에서 직접 하십시오.`;
   buildControls(); render();
+  if (window.Guide && Guide.firstVisit()) setTimeout(Guide.open, 300);   // 처음 연 사람에게만 안내 지도
 }
+$('#guidebtn').addEventListener('click', () => window.Guide && Guide.open());
+/* 안내 지도(guide.js)가 탭을 바꿀 때 쓰는 연결 고리 */
+window.G2BUI = {go(tab) { if (S.tab !== tab) { S.tab = tab; save(); buildControls(); render(); } }};
 
 /* ------------------------------------------------------------ 상태·조작부 */
 const PERIODS = [['1', '1개월'], ['3', '3개월'], ['6', '6개월'], ['12', '1년']];
