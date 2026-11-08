@@ -239,6 +239,8 @@
     const C = curve(ok, lo, hi), wins = ok.map(b => b.wr);
     res.curve = C;
     res.bands = bands(C, width, step, 5, wins, W.dp);
+    // 과거 n건에 이 구간 사정률로 넣었다면 1순위가 됐을 건수(구간 평균이라 '약'으로 표시)
+    res.bands.forEach(x => { x.tried = ok.length; x.won = Math.round(x.p * ok.length); });
     const iSafe = C.below.findIndex(r => r <= 0.05);
     res.safe = iSafe < 0 ? null : {x: C.xs[iSafe], p: C.sm[iSafe]};
     // 성적표: 앞 70%로 1순위 구간을 고르고, 뒤 30%에서 그 구간의 낙찰 확률을 잰다

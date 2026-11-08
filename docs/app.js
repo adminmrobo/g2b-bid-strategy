@@ -164,16 +164,19 @@ function viewStrategy(v, M) {
     bindStrategy(); bindCalc(M.bids); return;
   }
   const B = M.bands, top = B[0], sc = M.score;
+  const rng = b => { const [f, t] = b.label.split(' ~ '); return `<span>${f}</span> <span>~ ${t}</span>`; };
   const riskTxt = r => r >= 0.5 ? `<span class="pill warn">${pct(r, 0)}</span>` : `<span class="pill">${pct(r, 0)}</span>`;
   v.innerHTML = card('확률이 높은 사정률 구간', lead, `
     <div class="bands">${B.map(b => `<div class="band ${b.rank === 1 ? 'main' : ''}">
-      <div class="rk">${b.rank}순위</div><div class="rng num">${b.label}</div><div class="pp num">약 ${pct(b.p, 1)}</div></div>`).join('')}</div>
-    <div class="tablewrap"><table>
+      <div class="rk">${b.rank}순위</div><div class="rng num">${rng(b)}</div><div class="pp num">약 ${pct(b.p, 1)}</div>
+      <div class="cnt num">(낙찰 ${fmt(b.won)}건 / 투찰 ${fmt(b.tried)}건)</div></div>`).join('')}</div>
+    <p class="bandsay">1순위 구간 <b class="num">${top.label}</b>: 이 구간으로 투찰했다면 과거 <b class="num">${fmt(top.tried)}건</b> 중 실제 낙찰(1순위)은 약 <b class="num">${fmt(top.won)}건</b>입니다.</p>
+    <div class="tablewrap"><table class="bt">
       <tr><th>순위</th><th>사정률 구간</th><th class="r">낙찰 확률</th><th class="r">구간 가운데에서 하한 미달 위험</th><th class="r">이 구간에 든 1순위 수</th><th>검증</th></tr>
-      ${B.map(b => tr([`${b.rank}순위`, [b.label, 'num'], R(`<b>${pct(b.p, 2)}</b>`), R(riskTxt(b.riskMid)), R(fmt(b.winners) + '건' + (b.winners < 10 ? ' <span class="pill warn">근거 적음</span>' : '')),
+      ${B.map(b => tr([`${b.rank}순위`, [b.label, 'num'], R(`<b>${pct(b.p, 2)}</b><br><span class="sub">낙찰 ${fmt(b.won)} / 투찰 ${fmt(b.tried)}건</span>`), R(riskTxt(b.riskMid)), R(fmt(b.winners) + '건' + (b.winners < 10 ? ' <span class="pill warn">근거 적음</span>' : '')),
         `<button class="btn mini verify" type="button" data-s="${A.fmtS((b.from + b.to) / 2)}">목록 보기</button>`])).join('')}
     </table></div>
-    <p class="note">낙찰 확률은 구간 안 어디에 넣든 평균적으로 1순위가 됐을 비율입니다. 하한 미달 위험은 실제 사정률이 내 사정률보다 높게 나와 하한선 아래가 될 확률입니다. 무작위 기준선(1/참가업체 수)은 <b class="num">${pct(M.base, 2)}</b>입니다.</p>
+    <p class="note">낙찰 확률 = 낙찰 건 ÷ 투찰 건. 분석에 쓴 과거 입찰 하나하나에 이 구간 사정률로 넣었다고 치고, 그중 1순위가 됐을 건수를 셉니다(구간 안 여러 사정률의 평균이라 건수는 '약'). '이 구간에 든 1순위 수'는 실제 1순위 업체의 사정률이 이 구간에 있었던 건수입니다. 하한 미달 위험은 실제 사정률이 내 사정률보다 높게 나와 하한선 아래가 될 확률입니다. 무작위 기준선(1/참가업체 수)은 <b class="num">${pct(M.base, 2)}</b>입니다.</p>
     <div class="chartbox"><canvas id="cv"></canvas></div>
     <div class="verdict ${sc.good ? 'good' : 'bad'}"><b>성적표</b> — 앞쪽 ${fmt(sc.trainN)}건에서 고른 1순위 구간 ${sc.band ? sc.band.label : '–'}을 뒤쪽 ${fmt(sc.testN)}건에 적용하면 낙찰 확률 <b class="num">${pct(sc.rate, 2)}</b> (95% 구간 ${pct(sc.lo, 1)}~${pct(sc.hi, 1)}), 무작위 기준선은 <b class="num">${pct(sc.base, 2)}</b>입니다.
       ${sc.good ? '구간 선택이 무작위보다 나았습니다.' : '<b>아직 무작위보다 확실히 낫다고 볼 근거는 부족합니다.</b> 자료가 쌓이면 다시 확인하고, 경쟁이 적은 공고 고르기(진행 공고 탭)를 함께 쓰세요.'}

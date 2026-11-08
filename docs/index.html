@@ -95,10 +95,15 @@ main{padding:20px 0 60px}
 .band{border:1px solid var(--line);border-radius:12px;padding:10px 12px;min-width:0}
 .band.main{border-color:var(--accent);background:var(--accent-soft)}
 .band .rk{font-size:12px;color:var(--muted)}
-.band .rng{font-size:20px;font-weight:600;white-space:nowrap}
-.band.main .rng{font-size:24px}
+.band .rng{font-size:clamp(15px,1.6vw,20px);font-weight:600;line-height:1.25}
+.band .rng span{white-space:nowrap}
+.band .cnt{font-size:12px;color:var(--muted)}
+.bandsay{margin:-6px 0 12px;font-size:14px}
+table.bt th,table.bt td{white-space:nowrap}
+td .sub{font-size:12px;color:var(--muted);font-weight:400}
+.band.main .rng{font-size:clamp(15px,1.6vw,20px)}
 .band .pp{font-size:14px;color:var(--accent);font-weight:600}
-@media (max-width:760px){.bands{grid-template-columns:repeat(2,minmax(0,1fr))}.band.main{grid-column:1/-1}.band .rng{font-size:14px}.band.main .rng{font-size:22px}}
+@media (max-width:760px){.bands{grid-template-columns:repeat(2,minmax(0,1fr))}.band.main{grid-column:1/-1}.band .rng{font-size:14px}.band.main .rng{font-size:20px}}
 .dtools{display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:10px;align-items:end;margin-bottom:8px}
 @media (max-width:860px){.dtools{grid-template-columns:1fr 1fr}}
 .dtools .btn{white-space:nowrap}
