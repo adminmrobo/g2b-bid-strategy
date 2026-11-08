@@ -187,21 +187,25 @@
   const toSj = b => ({...b, t: b.t / b.fl * 100, wr: b.wr / b.fl * 100});   // 기초 대비 % → 사정률
   const fmtS = v => (Math.round(v * 1000) / 1000).toFixed(3).replace(/\.?0+$/, '');
   /* 구간 폭 선택지: 가운데 값 ± half. 좁을수록 촘촘하지만 구간마다 근거(과거 1순위 수)가 줄어든다 */
-  const WIDTHS = [{key: '0.5', half: 0.5, step: 0.25, label: '±0.5'}, {key: '0.025', half: 0.025, step: 0.005, label: '±0.025'},
-    {key: '0.01', half: 0.01, step: 0.005, label: '±0.01'}];
+  // step: 구간 경계가 놓이는 눈금(±0.025면 98.050·98.075·98.100…), dp: 표시 자리수
+  const WIDTHS = [{key: '0.5', half: 0.5, step: 0.25, dp: 2, label: '±0.5'}, {key: '0.025', half: 0.025, step: 0.025, dp: 3, label: '±0.025'},
+    {key: '0.01', half: 0.01, step: 0.01, dp: 3, label: '±0.01'}];
 
   /** 폭 width 구간을 step 간격으로 밀며 구간 평균 낙찰 확률을 구하고, 겹치지 않는 상위 k개를 고른다 */
-  function bands(C, width = 1, step = 0.25, k = 5, wins = []) {
+  function bands(C, width = 1, step = 0.25, k = 5, wins = [], dp = 2) {
     const n = C.xs.length, pre = new Float64Array(n + 1);
     for (let i = 0; i < n; i++) pre[i + 1] = pre[i] + C.raw[i];
     const x0 = C.xs[0], at = v => Math.round((v - x0) / STEP);
     const all = [];
-    for (let a = Math.ceil(x0 / step) * step; a + width <= C.xs[n - 1] + 1e-9; a += step) {
-      const i = at(a), j = Math.min(n, at(a + width));
+    const m0 = Math.ceil(x0 / step - 1e-9);
+    for (let m = m0; ; m++) {
+      const a = +(m * step).toFixed(3), b = +(a + width).toFixed(3);   // 눈금 정수배로 계산해 소수 누적 오차 없앰
+      if (b > C.xs[n - 1] + 1e-9) break;
+      const i = at(a), j = Math.min(n, at(b));
       if (j <= i) continue;
-      all.push({from: +a.toFixed(2), to: +(a + width).toFixed(2), p: (pre[j] - pre[i]) / (j - i),
+      all.push({from: a, to: b, p: (pre[j] - pre[i]) / (j - i),
         riskLow: C.below[i], riskMid: C.below[Math.min(n - 1, at(a + width / 2))],
-        winners: wins.filter(w => w >= a && w < a + width).length});
+        winners: wins.filter(w => w >= a && w < b).length});
     }
     all.sort((x, y) => y.p - x.p);
     const pick = [];
@@ -209,7 +213,7 @@
       if (pick.every(p => c.to <= p.from + 1e-9 || c.from >= p.to - 1e-9)) pick.push(c);
       if (pick.length === k) break;
     }
-    pick.forEach((b, i) => { b.rank = i + 1; b.label = `${fmtS(b.from)} ~ ${fmtS(b.to)}`; });
+    pick.forEach((b, i) => { b.rank = i + 1; b.label = `${b.from.toFixed(dp)} ~ ${b.to.toFixed(dp)}`; });
     return pick;
   }
 
@@ -234,12 +238,12 @@
     const hi = Math.ceil(quantile(ok.map(b => b.wr), .995) + 1.5);
     const C = curve(ok, lo, hi), wins = ok.map(b => b.wr);
     res.curve = C;
-    res.bands = bands(C, width, step, 5, wins);
+    res.bands = bands(C, width, step, 5, wins, W.dp);
     const iSafe = C.below.findIndex(r => r <= 0.05);
     res.safe = iSafe < 0 ? null : {x: C.xs[iSafe], p: C.sm[iSafe]};
     // 성적표: 앞 70%로 1순위 구간을 고르고, 뒤 30%에서 그 구간의 낙찰 확률을 잰다
     const cut = Math.floor(ok.length * 0.7), tr = ok.slice(0, cut), te = ok.slice(cut);
-    const bTr = bands(curve(tr, lo, hi), width, step, 1, tr.map(b => b.wr))[0];
+    const bTr = bands(curve(tr, lo, hi), width, step, 1, tr.map(b => b.wr), W.dp)[0];
     const bTe = bTr ? bands1(curve(te, lo, hi), bTr.from, bTr.to) : 0;
     const [wl, wh] = wilson(Math.round(bTe * te.length), te.length);
     const teBase = mean(te.map(b => 1 / b.n));
