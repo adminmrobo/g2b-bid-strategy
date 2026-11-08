@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 from . import crypto_store as cs
 from .g2b_api import ApiError, Client, QuotaExceeded
-from .summarize import summarize_notices, summarize_scsbid
+from .summarize import SUMMARY_VERSION, summarize_notices, summarize_scsbid
 
 KST = ZoneInfo("Asia/Seoul")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -101,7 +101,7 @@ def collect(days_back, budget, max_minutes, refresh_days, notice_months, session
         bids = summarize_scsbid(rows, my)
         p = scsbid_path(div, d)
         changed = cs.write_if_changed(p, bids, pw, man, {"n": len(bids), "rows": total, "at": now,
-                                                         "calls": cli.calls - c0}, key=rel(p))
+                                                         "calls": cli.calls - c0, "sv": SUMMARY_VERSION}, key=rel(p))
         log(f"  낙찰 {DIVS[div]} {d}  업체행 {total:>7,}  입찰 {len(bids):>5,}  {'변경' if changed else '동일'}  (호출 {cli.calls})")
 
     def do_notice(y, m):
@@ -115,9 +115,11 @@ def collect(days_back, budget, max_minutes, refresh_days, notice_months, session
                                                         "complete": end == dt.date(y, m, last)}, key=rel(p))
         log(f"  공고 {y}-{m:02d}  원자료 {total:>7,}  공사·용역 {len(nts):>6,}  {'변경' if changed else '동일'}  (호출 {cli.calls})")
 
-    def have(p, need_complete=False):
+    def have(p, need_complete=False, need_sv=False):
         e = man.get(rel(p))
         if not e or not os.path.exists(p):
+            return False
+        if need_sv and e.get("sv", 1) < SUMMARY_VERSION:   # 요약 형식이 바뀌면 다시 받는다
             return False
         return e.get("complete", True) if need_complete else True
 
@@ -133,7 +135,7 @@ def collect(days_back, budget, max_minutes, refresh_days, notice_months, session
     for k in range(refresh_days, days_back):
         d = td - dt.timedelta(days=k)
         for div in DIVS:
-            if not have(scsbid_path(div, d)):
+            if not have(scsbid_path(div, d), need_sv=True):
                 jobs.append(("scsbid", (div, d), False))
     # 최근 것 먼저, 공고는 앞쪽에 두되 백필 공고는 낙찰 백필 사이에 섞는다
     pri = [j for j in jobs if j[2]]
@@ -187,7 +189,7 @@ def collect(days_back, budget, max_minutes, refresh_days, notice_months, session
 
 # ---------------------------------------------------------------- build
 BID_COLS = ["id", "nm", "dt", "div", "inst", "dinst", "mth", "cm", "res", "fl", "fle", "ps", "bss", "pre",
-            "n", "nr", "wr", "w2", "wc", "wb", "fw", "t", "my", "mr", "mq", "ind", "rgn", "rpm"]
+            "n", "nr", "wr", "w2", "wc", "wb", "fw", "t", "ub", "my", "mr", "mq", "ind", "rgn", "rpm"]
 UP_COLS = ["id", "nm", "div", "st", "ndt", "cls", "odt", "inst", "dinst", "mth", "cm", "ps", "ab", "rpm",
            "rl", "rgn", "ind", "url"]
 

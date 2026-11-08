@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
 """API 원자료(업체별 행) → 입찰 1건 = 1레코드 요약.
 
+SUMMARY_VERSION 2: 'ub'(1순위보다 낮은데 순위가 없는 투찰 중 가장 높은 것, 기초 대비 %) 추가.
+  공사는 순공사원가 등 다른 하한 규칙이 붙어 '하한율 × 예정가격'과 실제 하한이 다를 수 있다.
+  실제 하한은 ub와 1순위 투찰률 사이에 있으므로, 화면은 max(t, ub)를 하한선으로 쓴다.
+
 개인정보(대표자명·담당자명·전화·이메일)는 저장하지 않는다.
 업체는 상호와 사업자번호만 남긴다(낙찰 1순위·최종낙찰).
 """
 import re
+
+SUMMARY_VERSION = 2
 
 
 def num(v):
@@ -71,6 +77,10 @@ def summarize_scsbid(rows, my_biznos=()):
         def rb(b):
             return (b["amt"] / bss * 100) if (b and bss) else None
 
+        # 1순위보다 싼데 순위가 없는(하한 미달·부적격) 투찰 중 가장 높은 것 → 실제 하한의 아래쪽 경계
+        below = [b for b in bidders if b["rk"] is None and win and b["amt"] < win["amt"]]
+        ub = max((rb(b) for b in below), default=None) if bss else None
+
         rec = {
             "id": f"{no}-{od}", "no": no, "od": od,
             "nm": (f.get("bidNtceNm") or "").strip(),
@@ -87,6 +97,7 @@ def summarize_scsbid(rows, my_biznos=()):
             "wr": r4(rb(win)), "w2": r4(rb(sec)),
             "wc": win["nm"] if win else "", "wb": win["biz"] if win else "",
             "fw": (f.get("fnlSucsfCorpNm") or "").strip(),
+            "ub": r4(ub),
         }
         # 하한선(기초금액 대비 %) = 하한율 × 사정률
         rec["t"] = r4(fl * pre / bss) if (fl and pre and bss) else None

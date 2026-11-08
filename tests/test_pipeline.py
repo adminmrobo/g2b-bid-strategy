@@ -36,3 +36,24 @@ blob = open(os.path.join(run.STORE, "scsbid", "3", sorted(os.listdir(os.path.joi
 assert "전기".encode() not in blob
 print("OK")
 shutil.rmtree(run.STORE, ignore_errors=True)
+
+# 요약 형식이 올라가면(SUMMARY_VERSION) 옛 날짜를 다시 받아야 한다
+run.STORE = tempfile.mkdtemp(prefix="g2b_store_"); run.MANIFEST = os.path.join(run.STORE, "manifest.json")
+s2 = MockSession(server_max_rows=500)
+run.collect(days_back=10, budget=50000, max_minutes=10, refresh_days=1, notice_months=1, session=s2)
+m = run.load_manifest()
+for k, e in m.items():
+    if "/scsbid/" in k: e["sv"] = 1          # 옛 형식인 척
+run.save_manifest(m)
+c0 = s2.calls
+st = run.collect(days_back=10, budget=50000, max_minutes=10, refresh_days=1, notice_months=1, session=s2)
+m = run.load_manifest()
+assert all(e.get("sv") == 2 for k, e in m.items() if "/scsbid/" in k), "옛 형식 날짜가 다시 받아지지 않음"
+print("re-fetch old summaries ok, calls", s2.calls - c0)
+from collector.summarize import summarize_scsbid
+from tests.mock_api import day_bids
+sb = [b for b in summarize_scsbid(day_bids("20261104", "3")) if b["nr"] and b["nr"] < b["n"]]
+assert sb and all(b["ub"] is None or b["ub"] < b["wr"] for b in sb), "ub는 1순위보다 낮아야 함"
+assert sum(b["ub"] is not None for b in sb) > 0, "ub가 채워지지 않음"
+print("ub ok:", sum(b["ub"] is not None for b in sb), "/", len(sb))
+shutil.rmtree(run.STORE, ignore_errors=True)

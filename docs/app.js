@@ -60,7 +60,7 @@ function onLoaded() {
   $('#lock').style.display = 'none'; $('#app').style.display = 'block';
   const m = D.meta, st = m.status || {};
   $('#asof').textContent = `${m.last || '-'} 기준 · 갱신 ${m.built}`;
-  const cov = Object.entries(m.coverage || {}).map(([k, v]) => `${k} ${v.days}/${v.expected}일`).join(' · ');
+  const cov = `${m.first || '-'} ~ ${m.last || '-'} (조달청 개방표준 API는 2026-04-20 이전 낙찰 자료를 주지 않음)`;
   const backfill = st.left_days ? ` · 아직 못 받은 낙찰 ${fmt(st.left_days)}일치, 매일 자동으로 이어받아 약 ${fmt(st.eta_days)}일 뒤 완료 예상`
     : st.left ? ` · 남은 작업 ${fmt(st.left)}개(매일 자동으로 이어받음)` : '';
   $('#foot').innerHTML = `데이터: 조달청 공공데이터개방표준서비스(낙찰·입찰공고). 적재 현황 ${esc(cov)}${esc(backfill)}` +
@@ -75,8 +75,9 @@ window.G2BUI = {go(tab) { if (S.tab !== tab) { S.tab = tab; save(); buildControl
 /* ------------------------------------------------------------ 상태·조작부 */
 const PERIODS = [['1', '1개월'], ['3', '3개월'], ['6', '6개월'], ['12', '1년']];
 const TABS = [['strategy', '가격 전략'], ['compete', '경쟁 분석'], ['fail', '유찰 분석'], ['upcoming', '진행 공고'], ['mine', '내 회사']];
-const S = {cats: ['elec'], period: '3', tab: 'strategy', floor: 'auto', cost: 80, custom: {}};
+const S = {cats: ['nara'], period: '6', tab: 'strategy', floor: 'all', custom: {}};
 try { Object.assign(S, JSON.parse(store.get('g2b_state') || '{}')); } catch (e) {}
+if (!S.v2) { S.cats = ['nara']; S.floor = 'all'; S.v2 = 1; }   // 판 2: 기본 업종을 '전기·소방 감리'로
 const save = () => store.set('g2b_state', JSON.stringify(S));
 
 function chip(label, pressed, onclick, cls = '') {
@@ -134,84 +135,93 @@ function render() {
   const cf = A.categoryFilter(S.cats, S.custom);
   const [from, to] = A.periodRange(D.meta.last || D.meta.today, parseInt(S.period, 10));
   const sel = D.bids.filter(b => b._d >= from && b._d <= to && cf(b));
-  $('#scope').innerHTML = `<b>${esc(A.categoryLabel(S.cats))}</b> · ${new Date(from).toISOString().slice(0, 10)} ~ ${new Date(to).toISOString().slice(0, 10)} · 입찰 <span class="num">${fmt(sel.length)}</span>건`;
+  const d0 = new Date(from).toISOString().slice(0, 10);
+  const short = D.meta.first && d0 < D.meta.first ? ` <span class="muted">(조달청 자료는 ${D.meta.first}부터 있음)</span>` : '';
+  $('#scope').innerHTML = `<b>${esc(A.categoryLabel(S.cats))}</b> · ${d0} ~ ${new Date(to).toISOString().slice(0, 10)} · 입찰 <span class="num">${fmt(sel.length)}</span>건${short}`;
   const v = $('#view');
   if (S.tab === 'upcoming') return viewUpcoming(v, A.upcoming(sel, D.upcoming.filter(cf), D.meta.today));
   if (!sel.length) { v.innerHTML = '<div class="empty">조건에 맞는 입찰이 없습니다. 업종이나 기간을 넓혀 보세요.</div>'; return; }
-  if (S.tab === 'strategy') return viewStrategy(v, A.strategy(sel, {floor: S.floor, cost: S.cost}));
+  if (S.tab === 'strategy') return viewStrategy(v, A.strategy(sel, {floor: S.floor}));
   if (S.tab === 'compete') return viewCompete(v, A.compete(sel));
   if (S.tab === 'fail') return viewFail(v, A.fail(sel));
   if (S.tab === 'mine') return viewMine(v, A.mine(sel));
 }
 
-/* ---------- 가격 전략 */
+/* ---------- 가격 전략 (사정률 구간) */
 function viewStrategy(v, M) {
   S.floor = M.floor;
-  const flSel = `<select id="flsel">${M.floors.map(f => `<option value="${f.value}" ${M.floor === f.value ? 'selected' : ''}>하한율 ${f.value}% (${f.count}건)</option>`).join('')}<option value="all" ${M.floor === 'all' ? 'selected' : ''}>전체 하한율 섞기</option></select>`;
-  const lead = `기초금액 대비 투찰률을 하나로 고정해 과거 입찰 ${fmt(M.n)}건에 넣어 봤을 때, 1순위가 되었을 비율입니다. 하한율이 다르면 목표 지점이 달라지므로 하한율별로 나눠 봅니다. ${flSel}`;
-  const flNum = M.floor !== 'all' ? +M.floor : null;
+  const flSel = `<select id="flsel"><option value="all" ${M.floor === 'all' ? 'selected' : ''}>하한율 전체 (사정률로 환산해 함께)</option>${M.floors.map(f => `<option value="${f.value}" ${M.floor === f.value ? 'selected' : ''}>하한율 ${f.value}%만 (${f.count}건)</option>`).join('')}</select>`;
+  const skip = M.unknownFloor ? ` <span class="pill warn">하한선을 알 수 없는 공사 ${fmt(M.unknownFloor)}건 제외</span>` : '';
+  const lead = `사정률(투찰금액 ÷ (기초금액 × 하한율) × 100)을 폭 ${M.width} 구간으로 나눠, 과거 입찰 ${fmt(M.n)}건에 그 구간으로 넣었다면 1순위가 되었을 확률을 매겼습니다.${skip} ${flSel}`;
   if (!M.enough) {
-    v.innerHTML = card('투찰률별 낙찰 확률', lead, `<div class="empty">표본이 ${M.n}건이라 곡선을 그리기 어렵습니다. 기간을 늘리거나 업종을 넓혀 주세요.</div>`) + calcHtml(flNum);
+    v.innerHTML = card('확률이 높은 사정률 구간', lead, `<div class="empty">표본이 ${M.n}건이라 구간을 매기기 어렵습니다. 기간을 늘리거나 업종을 넓혀 주세요.</div>`) + calcHtml(null);
     bindStrategy(); bindCalc(M.bids); return;
   }
-  const rec = (cls, title, r, desc) => r ? `<div class="rec ${cls}"><div class="t">${title}</div><div class="x">${r.x.toFixed(3)}%</div><div class="d">낙찰 확률 <b class="num">${pct(r.p, 2)}</b> · 하한 미달 위험 <b class="num">${pct(r.risk, 0)}</b></div><div class="note">${desc}</div></div>` : '';
-  const sc = M.score;
-  v.innerHTML = card('투찰률별 낙찰 확률', lead, `<div class="chartbox"><canvas id="cv"></canvas></div>
-    <div class="recs">
-      ${rec('main', '확률 최대형', M.recs.best, '과거 자료에서 1순위가 가장 자주 됐을 투찰률')}
-      ${rec('', '안전형 (하한 미달 5% 이하)', M.recs.safe, '하한선 아래로 떨어질 위험을 5% 이하로 묶은 가장 낮은 값')}
-      ${rec('', `수익형 (원가율 <input id="cost" type="number" value="${S.cost}" step="1" style="width:56px"> %)`, M.recs.profit, '낙찰 확률 × (투찰률 − 원가율)이 가장 큰 값')}
-    </div>
-    <div class="verdict ${sc.good ? 'good' : 'bad'}"><b>성적표</b> — 앞쪽 ${fmt(sc.trainN)}건으로 고른 ${sc.x.toFixed(3)}%를 뒤쪽 ${fmt(sc.testN)}건에 적용하면 낙찰 확률 <b class="num">${pct(sc.rate, 2)}</b> (95% 구간 ${pct(sc.lo, 1)}~${pct(sc.hi, 1)}), 무작위 기준선(1/참가업체 수)은 <b class="num">${pct(sc.base, 2)}</b>입니다.
-      ${sc.good ? '투찰률 선택이 무작위보다 나았습니다.' : '<b>이 업종·기간에서는 투찰률만으로 무작위보다 낫다고 볼 근거가 없습니다.</b> 경쟁이 적은 공고를 고르는 쪽(진행 공고 탭)이 확률을 더 바꿉니다.'}
+  const B = M.bands, top = B[0], sc = M.score;
+  const riskTxt = r => r >= 0.5 ? `<span class="pill warn">${pct(r, 0)}</span>` : `<span class="pill">${pct(r, 0)}</span>`;
+  v.innerHTML = card('확률이 높은 사정률 구간', lead, `
+    <div class="bands">${B.map(b => `<div class="band ${b.rank === 1 ? 'main' : ''}">
+      <div class="rk">${b.rank}순위</div><div class="rng num">${b.label}</div><div class="pp num">약 ${pct(b.p, 1)}</div></div>`).join('')}</div>
+    <div class="tablewrap"><table>
+      <tr><th>순위</th><th>사정률 구간</th><th class="r">낙찰 확률</th><th class="r">구간 가운데에서 하한 미달 위험</th><th class="r">이 구간에 든 1순위 수</th></tr>
+      ${B.map(b => tr([`${b.rank}순위`, [b.label, 'num'], R(`<b>${pct(b.p, 2)}</b>`), R(riskTxt(b.riskMid)), R(fmt(b.winners) + '건')])).join('')}
+    </table></div>
+    <p class="note">낙찰 확률은 구간 안 어디에 넣든 평균적으로 1순위가 됐을 비율입니다. 하한 미달 위험은 실제 사정률이 내 사정률보다 높게 나와 하한선 아래가 될 확률입니다. 무작위 기준선(1/참가업체 수)은 <b class="num">${pct(M.base, 2)}</b>입니다.</p>
+    <div class="chartbox"><canvas id="cv"></canvas></div>
+    <div class="verdict ${sc.good ? 'good' : 'bad'}"><b>성적표</b> — 앞쪽 ${fmt(sc.trainN)}건에서 고른 1순위 구간 ${sc.band ? sc.band.label : '–'}을 뒤쪽 ${fmt(sc.testN)}건에 적용하면 낙찰 확률 <b class="num">${pct(sc.rate, 2)}</b> (95% 구간 ${pct(sc.lo, 1)}~${pct(sc.hi, 1)}), 무작위 기준선은 <b class="num">${pct(sc.base, 2)}</b>입니다.
+      ${sc.good ? '구간 선택이 무작위보다 나았습니다.' : '<b>아직 무작위보다 확실히 낫다고 볼 근거는 부족합니다.</b> 자료가 쌓이면 다시 확인하고, 경쟁이 적은 공고 고르기(진행 공고 탭)를 함께 쓰세요.'}
     </div>`) + kpis([
-    ['분석 입찰', fmt(M.n) + '건', M.floor === 'all' ? '하한율 혼합' : `하한율 ${M.floor}%`],
+    ['분석 입찰', fmt(M.n) + '건', M.floor === 'all' ? '하한율 전체' : `하한율 ${M.floor}%`],
     ['무작위 기준선', pct(M.base, 2), '평균 1/참가업체 수'],
-    ['하한선 위치 (중앙값)', fmt(M.stats.tMed, 3) + '%', `기초 대비 · 5~95%: ${fmt(M.stats.t05, 2)}~${fmt(M.stats.t95, 2)}`],
-    ['1순위 여유폭 (중앙값)', fmt(M.stats.margin, 3) + '%p', '1순위 투찰률 − 하한선'],
-  ]) + calcHtml(flNum, M.recs.best.x);
-  const C = M.curve, every = (arr, f) => Array.from(arr).filter((_, i) => i % 5 === 0).map(f);
+    ['실제 사정률 (중앙값)', fmt(M.stats.sjMed, 2), `5~95%: ${fmt(M.stats.sj05, 2)} ~ ${fmt(M.stats.sj95, 2)}`],
+    ['1순위 투찰 사정률 (중앙값)', fmt(M.stats.winMed, 2), M.safe ? `하한 미달 5% 이하: ${fmt(M.safe.x, 2)} 이상` : ''],
+  ]) + calcHtml(M.floor !== 'all' ? +M.floor : null, (top.from + top.to) / 2);
+  const C = M.curve, every = (arr, f) => Array.from(arr).filter((_, i) => i % 10 === 0).map(f);
   const xs = every(C.xs, x => x), base = +(M.base * 100).toFixed(3);
+  const smP = every(C.sm, p => +(p * 100).toFixed(3));
+  const inTop = x => x >= top.from && x <= top.to;
   mkChart('cv', {type: 'line', data: {labels: xs, datasets: [
-    {label: '낙찰 확률 (±0.05%p 평활)', data: every(C.sm, p => +(p * 100).toFixed(3)), borderColor: css('--chart1'), borderWidth: 2, pointRadius: 0, yAxisID: 'y'},
+    {label: `1순위 구간 ${top.label}`, data: xs.map((x, i) => inTop(x) ? smP[i] : null),
+      borderColor: 'transparent', backgroundColor: css('--accent-soft'), fill: 'origin', pointRadius: 0, yAxisID: 'y', spanGaps: false},
+    {label: '낙찰 확률 (±0.05 평활)', data: smP, borderColor: css('--chart1'), borderWidth: 2, pointRadius: 0, yAxisID: 'y'},
     {label: '무작위 기준선', data: xs.map(() => base), borderColor: css('--chart3'), borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0, yAxisID: 'y'},
     {label: '하한 미달 위험', data: every(C.below, p => +(p * 100).toFixed(3)), borderColor: css('--chart2'), borderWidth: 1.5, pointRadius: 0, yAxisID: 'y2'},
   ]}, options: {maintainAspectRatio: false, animation: false, interaction: {mode: 'index', intersect: false},
-    scales: {x: {title: {display: true, text: '투찰률 (기초금액 대비 %)'}, ticks: {maxTicksLimit: 10}},
+    scales: {x: {title: {display: true, text: '사정률 (%)'}, ticks: {autoSkip: false, maxRotation: 0,
+      callback: function (v) { const x = +this.getLabelForValue(v); return Math.abs(x - Math.round(x)) < 0.005 ? String(Math.round(x)) : null; }}},
       y: {title: {display: true, text: '낙찰 확률 (%)'}, beginAtZero: true},
       y2: {position: 'right', min: 0, max: 100, title: {display: true, text: '하한 미달 위험 (%)'}, grid: {drawOnChartArea: false}}},
-    plugins: {tooltip: {callbacks: {title: i => `투찰률 ${i[0].label}%`, label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(2)}%`}}}}});
+    plugins: {tooltip: {filter: i => i.raw != null && i.datasetIndex > 0, callbacks: {title: i => `사정률 ${A.fmtS(+i[0].label)}`, label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(2)}%`}}}}});
   bindStrategy(); bindCalc(M.bids);
 }
 function bindStrategy() {
   const f = $('#flsel'); if (f) f.onchange = () => { S.floor = f.value; save(); render(); };
-  const c = $('#cost'); if (c) c.onchange = () => { S.cost = +c.value; save(); render(); };
 }
-function calcHtml(fl, x) {
-  return card('투찰금액 계산기', '공고의 기초금액과 하한율을 넣으면 투찰금액과, 복수예가 추첨(15개 중 4개 평균)을 2만 번 돌려 본 하한 미달 위험을 계산합니다.', `
+function calcHtml(fl, s) {
+  return card('투찰금액 계산기', '공고의 기초금액과 하한율, 넣을 사정률을 입력하면 투찰금액을 원 단위로 계산합니다. 하한 미달 위험은 복수예가 추첨(15개 중 4개 평균)을 2만 번 돌려 본 값입니다.', `
   <div class="calc">
     <div class="field"><label>기초금액 (원)</label><input id="k_bss" inputmode="numeric" value="${esc(store.get('g2b_kbss') || '')}" placeholder="예: 512,300,000"></div>
-    <div class="field"><label>낙찰하한율 (%)</label><input id="k_fl" type="number" step="0.001" value="${fl ?? 87.745}"></div>
+    <div class="field"><label>낙찰하한율 (%)</label><input id="k_fl" type="number" step="0.001" value="${fl ?? 86.745}"></div>
     <div class="field"><label>예비가격 범위</label><select id="k_sp"><option value="0.02">±2% (국가기관·조달청)</option><option value="0.03">±3% (지자체 등)</option></select></div>
-    <div class="field"><label>투찰률 (기초 대비 %)</label><input id="k_x" type="number" step="0.001" value="${x ? x.toFixed(3) : ''}"></div>
+    <div class="field"><label>사정률 (%)</label><input id="k_s" type="number" step="0.01" value="${s ? A.fmtS(s) : ''}"></div>
   </div>
-  <div class="two"><div><div class="note">투찰금액</div><div class="out" id="k_amt">–</div><div class="note" id="k_note"></div></div>
-  <div><div class="note">하한 미달 위험 (추첨 시뮬레이션)</div><div class="out" id="k_risk">–</div><div class="note" id="k_hist"></div></div></div>
-  <p class="note">공고문에서 예비가격 범위와 하한율을 반드시 확인하세요. 같은 업종이라도 발주기관에 따라 다릅니다.</p>`);
+  <div class="two"><div><div class="note">투찰금액 = 기초금액 × 하한율 × 사정률</div><div class="out" id="k_amt">–</div><div class="note" id="k_note"></div></div>
+  <div><div class="note">하한 미달 위험 (추첨 시뮬레이션 · 과거 실제 비율)</div><div class="out" id="k_risk">–</div><div class="note" id="k_hist"></div></div></div>
+  <p class="note">사정률 칸에는 1순위 구간의 가운데 값이 미리 들어가 있습니다. 공고문에서 예비가격 범위와 하한율을 반드시 확인하세요.</p>`);
 }
 function bindCalc(hist) {
   if (!$('#k_bss')) return;
   const go = () => {
     store.set('g2b_kbss', $('#k_bss').value);
     const r = A.calc({bss: parseFloat(($('#k_bss').value || '').replace(/[^\d.]/g, '')), fl: +$('#k_fl').value,
-      span: +$('#k_sp').value, x: +$('#k_x').value}, hist);
-    $('#k_risk').textContent = r.risk != null ? pct(r.risk, 1) : '–';
-    $('#k_hist').textContent = r.floorBand ? `하한선 위치(기초 대비) 5~95%: ${r.floorBand[0].toFixed(3)}% ~ ${r.floorBand[1].toFixed(3)}%` +
-      (r.pastN ? ` · 과거 같은 조건 ${fmt(r.pastN)}건 중 이 투찰률이었으면 1순위 ${r.pastWins}건` : '') : '';
+      span: +$('#k_sp').value, s: +$('#k_s').value}, hist);
+    $('#k_risk').textContent = r.risk != null ? pct(r.risk, 1) + (r.pastBelow != null ? ` · 과거 자료 ${pct(r.pastBelow, 0)}` : '') : '–';
+    $('#k_hist').textContent = r.sjBand ? `실제 사정률이 나올 범위 5~95%: ${r.sjBand[0].toFixed(2)} ~ ${r.sjBand[1].toFixed(2)}` +
+      (r.pastN ? ` · 과거 ${fmt(r.pastN)}건 중 이 사정률이었으면 1순위 ${r.pastWins}건` : '') : '';
     $('#k_amt').textContent = r.amount ? fmt(r.amount) + '원' : '–';
-    $('#k_note').textContent = r.floorPrice ? `하한가 범위 ${fmt(r.floorPrice[0])} ~ ${fmt(r.floorPrice[1])}원` : '';
+    $('#k_note').textContent = r.rate ? `기초금액 대비 ${r.rate.toFixed(3)}%` : '';
   };
-  ['k_bss', 'k_fl', 'k_sp', 'k_x'].forEach(id => { const el = $('#' + id); el.oninput = el.onchange = go; });
+  ['k_bss', 'k_fl', 'k_sp', 'k_s'].forEach(id => { const el = $('#' + id); el.oninput = el.onchange = go; });
   go();
 }
 

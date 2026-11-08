@@ -4,17 +4,22 @@ const D = A.prepare(require(require('path').resolve(process.argv[2])));
 const assert = (c, m) => { if (!c) { console.error('FAIL', m); process.exit(1); } };
 const cf = A.categoryFilter(['elec', 'sup', 'fire'], {});
 const sel = D.bids.filter(cf);
-const s = A.strategy(sel, {floor: 'auto', cost: 80});
-assert(s.enough && s.recs.best && s.score, 'strategy');
-assert(s.recs.best.p >= 0 && s.recs.best.p <= 1, 'prob range');
-// 곡선 정의 검산: 최고점 투찰률로 실제로 몇 건 1순위였나
-const x = s.recs.best.x, wins = s.bids.filter(b => b.t <= x && x < b.wr).length;
-assert(Math.abs(wins / s.n - s.curve.raw[s.curve.xs.indexOf(x)]) < 1e-9, 'curve raw == direct count');
+const s = A.strategy(sel, {floor: 'all'});
+assert(s.enough && s.bands.length && s.score, 'strategy');
+assert(s.bands.every(b => b.to - b.from === 1 && b.p >= 0 && b.p <= 1), 'band width 1');
+assert(s.bands.every((b, i) => !i || b.p <= s.bands[i - 1].p), 'bands sorted');
+assert(s.bands.every((b, i) => s.bands.every((c, j) => i === j || c.to <= b.from || c.from >= b.to)), 'bands do not overlap');
+// 사정률 정의 검산: 1순위 구간 가운데 사정률로 실제 1순위였던 건수
+const mid = (s.bands[0].from + s.bands[0].to) / 2, direct = s.bids.filter(b => b.t <= mid && mid < b.wr).length;
+assert(direct === A.calc({fl: 87.745, span: 0.03, s: mid}, s.bids).pastWins, 'calc pastWins == direct count');
 const c = A.compete(sel); assert(c.nMed > 0 && c.months.length && c.winners.length, 'compete');
 const f = A.fail(sel); assert(f.total === sel.length && f.rate >= 0, 'fail');
 const u = A.upcoming(sel, D.upcoming.filter(cf), D.meta.today); assert(u.rows.length > 0, 'upcoming');
-const m = A.mine(sel); assert(m.count > 0, 'mine');
-const k = A.calc({bss: 5e8, fl: 87.745, span: 0.03, x: 87.8}, s.bids); assert(k.amount === 439000000 && k.risk > 0 && k.risk < 1, 'calc');
+const m = A.mine(sel); assert(!D.meta.my_set || m.count > 0, 'mine');
+const k = A.calc({bss: 5e8, fl: 87.745, span: 0.03, s: 100}, s.bids); assert(k.amount === 438725000 && k.risk > 0 && k.risk < 1, 'calc');
+const nara = A.categoryFilter(['nara'], {}), viaCustom = A.categoryFilter(['custom'], {inc: '전기+감리, 소방+감리'});
+assert(D.bids.every(b => nara(b) === viaCustom(b)), 'preset == custom syntax');
+assert(nara({nm: '주택건설공사 감리자(전기) 모집'}) && nara({nm: '소방감리자 모집'}) && nara({nm: '전기(감리자)'}) && !nara({nm: '전기공사'}) && !nara({nm: '건축 감리'}), 'nara rule');
 const cu = A.categoryFilter(['custom'], {inc: '소방', min: '1'}); assert(D.bids.filter(cu).every(b => b.nm.includes('소방') && (b.bss ?? b.ps) >= 1e8), 'custom');
-console.log('analysis OK', {n: s.n, floor: s.floor, best: s.recs.best, score: {rate: s.score.rate, base: s.score.base, good: s.score.good},
+console.log('analysis OK', {n: s.n, top: s.bands[0].label, p: s.bands[0].p, score: {rate: s.score.rate, base: s.score.base, good: s.score.good},
   nMed: c.nMed, failRate: f.rate, upcoming: u.rows.length, mine: m.count});

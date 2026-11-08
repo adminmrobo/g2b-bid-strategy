@@ -16,6 +16,9 @@
   /* ---------------------------------------------------------- 업종 정의 */
   const has = (s, re) => re.test(s || '');
   const CATS = [
+    // 나라기술단 기준: 공고명에 '감리'가 있고, '전기' 또는 '소방'이 있는 것
+    // (감리자(전기) · 감리자(소방) · 전기(감리자) · 소방감리자 · 전기감리 용역 …)
+    {k: 'nara', label: '전기·소방 감리', f: b => has(b.nm, /감리/) && has(b.nm, /전기|소방/)},
     {k: 'elec', label: '전기공사', f: b => b.div === '공사' && (has(b.ind, /전기공사/) || (has(b.nm, /전기/) && !has(b.nm, /정보통신|통신|소방/)))},
     {k: 'sup', label: '감리', f: b => has(b.nm, /감리/) || has(b.ind, /감리|전력기술관리/)},
     {k: 'fire', label: '소방', f: b => has(b.nm, /소방/) || has(b.ind, /소방/)},
@@ -35,10 +38,12 @@
   function customFilter(c) {
     c = c || {};
     const list = s => (s || '').split(',').map(x => x.trim()).filter(Boolean);
-    const inc = list(c.inc), exc = list(c.exc), ind = list(c.ind), inst = list(c.inst), rgn = list(c.rgn), mth = list(c.mth);
+    // 포함 키워드: 쉼표(,)는 '하나라도', 더하기(+)는 '모두'. 예) 전기+감리, 소방+감리
+    const inc = list(c.inc).map(g => g.split('+').map(x => x.trim()).filter(Boolean)).filter(g => g.length);
+    const exc = list(c.exc), ind = list(c.ind), inst = list(c.inst), rgn = list(c.rgn), mth = list(c.mth);
     const mn = parseFloat(c.min) * 1e8, mx = parseFloat(c.max) * 1e8;
     return b => {
-      if (inc.length && !inc.some(k => (b.nm || '').includes(k))) return false;
+      if (inc.length && !inc.some(g => g.every(k => (b.nm || '').includes(k)))) return false;
       if (exc.some(k => (b.nm || '').includes(k))) return false;
       if (c.div && b.div !== c.div) return false;
       if (ind.length && !ind.some(k => (b.ind || '').includes(k))) return false;
@@ -128,57 +133,94 @@
     return (_sim[span] = Array.from(out).sort((a, b) => a - b));
   }
 
-  /* ---------------------------------------------------------- 모델: 가격 전략 */
-  /** opts = {floor: 'auto'|'all'|'87.745', cost: 원가율 %} */
-  function strategy(sel, opts = {}) {
-    let ok = sel.filter(b => b.t && b.wr && !isFail(b) && b.wr >= b.t - 0.01);
-    const cnt = {};
-    ok.forEach(b => { const k = b.fl?.toFixed(3); if (k) cnt[k] = (cnt[k] || 0) + 1; });
-    const floors = Object.entries(cnt).sort((a, b) => b[1] - a[1]).map(([value, count]) => ({value, count}));
-    let floor = opts.floor || 'auto';
-    if (floor === 'auto' || (floor !== 'all' && !cnt[floor])) floor = floors.length ? floors[0].value : 'all';
-    if (floor !== 'all') ok = ok.filter(b => b.fl?.toFixed(3) === floor);
-    ok.sort((a, b) => a._d - b._d);
-    const res = {floors, floor, bids: ok, n: ok.length, base: mean(ok.map(b => 1 / b.n)), enough: ok.length >= 20};
-    if (!res.enough) return res;
+  /* ---------------------------------------------------------- 모델: 가격 전략 (사정률 구간)
+   * 업계 관행대로 투찰금액 = 기초금액 × 하한율 × 사정률 로 본다.
+   * 입찰마다 사정률 s(%)로 넣었을 때 1순위가 되는 범위는
+   *   [실제 사정률(예정÷기초×100),  1순위 투찰금액÷(기초×하한율)×100)
+   * 이라서, 하한율이 다른 입찰도 한 축에 모아 비교할 수 있다.                        */
+  const toSj = b => ({...b, t: b.t / b.fl * 100, wr: b.wr / b.fl * 100});   // 기초 대비 % → 사정률
+  const fmtS = v => (Math.round(v * 100) / 100).toFixed(2).replace(/\.?0+$/, '');
 
-    const lo = Math.floor((quantile(ok.map(b => b.t), .01) - 0.6) * 10) / 10;
-    const hi = Math.ceil((quantile(ok.map(b => b.wr), .99) + 0.6) * 10) / 10;
-    const C = curve(ok, lo, hi);
-    const at = i => i < 0 ? null : {x: C.xs[i], p: C.sm[i], risk: C.below[i]};
-    const cost = +opts.cost || 0;
-    res.curve = C;
-    res.recs = {
-      best: at(argmax(C.sm)),                                   // 확률 최대형
-      safe: at(C.below.findIndex(r => r <= 0.05)),               // 안전형: 하한 미달 5% 이하 중 가장 낮은 값
-      profit: at(argmax(C.sm.map((p, i) => p * Math.max(0, C.xs[i] - cost)))), // 수익형
-    };
-    // 성적표: 앞 70%로 고르고 뒤 30%로 채점
-    const cut = Math.floor(ok.length * 0.7), tr = ok.slice(0, cut), te = ok.slice(cut);
-    const iTr = argmax(curve(tr, lo, hi).sm), rate = curve(te, lo, hi).sm[iTr];
-    const [wl, wh] = wilson(Math.round(rate * te.length), te.length);
-    const teBase = mean(te.map(b => 1 / b.n));
-    res.score = {trainN: tr.length, testN: te.length, x: C.xs[iTr], rate, lo: wl, hi: wh, base: teBase, good: wl > teBase};
-    const ts = ok.map(b => b.t);
-    res.stats = {tMed: median(ts), t05: quantile(ts, .05), t95: quantile(ts, .95), margin: median(ok.map(b => b.wr - b.t))};
-    return res;
+  /** 폭 width 구간을 step 간격으로 밀며 구간 평균 낙찰 확률을 구하고, 겹치지 않는 상위 k개를 고른다 */
+  function bands(C, width = 1, step = 0.25, k = 5, wins = []) {
+    const n = C.xs.length, pre = new Float64Array(n + 1);
+    for (let i = 0; i < n; i++) pre[i + 1] = pre[i] + C.raw[i];
+    const x0 = C.xs[0], at = v => Math.round((v - x0) / STEP);
+    const all = [];
+    for (let a = Math.ceil(x0 / step) * step; a + width <= C.xs[n - 1] + 1e-9; a += step) {
+      const i = at(a), j = Math.min(n, at(a + width));
+      if (j <= i) continue;
+      all.push({from: +a.toFixed(2), to: +(a + width).toFixed(2), p: (pre[j] - pre[i]) / (j - i),
+        riskLow: C.below[i], riskMid: C.below[Math.min(n - 1, at(a + width / 2))],
+        winners: wins.filter(w => w >= a && w < a + width).length});
+    }
+    all.sort((x, y) => y.p - x.p);
+    const pick = [];
+    for (const c of all) {
+      if (pick.every(p => c.to <= p.from + 1e-9 || c.from >= p.to - 1e-9)) pick.push(c);
+      if (pick.length === k) break;
+    }
+    pick.forEach((b, i) => { b.rank = i + 1; b.label = `${fmtS(b.from)} ~ ${fmtS(b.to)}`; });
+    return pick;
   }
 
-  /** 투찰금액 계산기. q = {bss 원, fl %, span 0.02|0.03, x %}, hist = 같은 조건 과거 입찰 */
+  /** opts = {floor: 'all'|'87.745', width: 1, step: 0.25} */
+  function strategy(sel, opts = {}) {
+    const cand = sel.filter(b => b.t && b.wr && b.fl && b.pre && b.bss && !isFail(b) && b.wr >= b.t - 0.01);
+    let ok = cand.filter(b => b.tOk !== false);
+    const unknownFloor = cand.length - ok.length;
+    const cnt = {};
+    ok.forEach(b => { const k = b.fl.toFixed(3); cnt[k] = (cnt[k] || 0) + 1; });
+    const floors = Object.entries(cnt).sort((a, b) => b[1] - a[1]).map(([value, count]) => ({value, count}));
+    let floor = opts.floor || 'all';
+    if (floor !== 'all' && !cnt[floor]) floor = 'all';
+    if (floor !== 'all') ok = ok.filter(b => b.fl.toFixed(3) === floor);
+    ok = ok.map(toSj).sort((a, b) => a._d - b._d);
+    const width = opts.width || 1, step = opts.step || 0.25;
+    const res = {floors, floor, bids: ok, n: ok.length, base: mean(ok.map(b => 1 / b.n)), enough: ok.length >= 20, width, unknownFloor};
+    if (!res.enough) return res;
+
+    const lo = Math.floor(quantile(ok.map(b => b.t), .005) - 1.5);
+    const hi = Math.ceil(quantile(ok.map(b => b.wr), .995) + 1.5);
+    const C = curve(ok, lo, hi), wins = ok.map(b => b.wr);
+    res.curve = C;
+    res.bands = bands(C, width, step, 5, wins);
+    const iSafe = C.below.findIndex(r => r <= 0.05);
+    res.safe = iSafe < 0 ? null : {x: C.xs[iSafe], p: C.sm[iSafe]};
+    // 성적표: 앞 70%로 1순위 구간을 고르고, 뒤 30%에서 그 구간의 낙찰 확률을 잰다
+    const cut = Math.floor(ok.length * 0.7), tr = ok.slice(0, cut), te = ok.slice(cut);
+    const bTr = bands(curve(tr, lo, hi), width, step, 1)[0];
+    const bTe = bTr ? bands1(curve(te, lo, hi), bTr.from, bTr.to) : 0;
+    const [wl, wh] = wilson(Math.round(bTe * te.length), te.length);
+    const teBase = mean(te.map(b => 1 / b.n));
+    res.score = {trainN: tr.length, testN: te.length, band: bTr, rate: bTe, lo: wl, hi: wh, base: teBase, good: wl > teBase};
+    const ts = ok.map(b => b.t);
+    res.stats = {sjMed: median(ts), sj05: quantile(ts, .05), sj95: quantile(ts, .95), winMed: median(wins)};
+    return res;
+  }
+  /** 정해진 구간 [from, to)의 평균 낙찰 확률 */
+  function bands1(C, from, to) {
+    const i0 = Math.max(0, Math.round((from - C.xs[0]) / STEP)), i1 = Math.min(C.xs.length, Math.round((to - C.xs[0]) / STEP));
+    let s = 0; for (let i = i0; i < i1; i++) s += C.raw[i];
+    return i1 > i0 ? s / (i1 - i0) : 0;
+  }
+
+  /** 투찰금액 계산기. q = {bss 원, fl 하한율 %, span 0.02|0.03, s 사정률 %}, hist = strategy().bids */
   function calc(q, hist) {
     const out = {};
-    if (q.fl && q.x) {
+    if (q.fl && q.s) {
+      out.rate = q.fl * q.s / 100;                            // 기초금액 대비 투찰률(%)
       const sims = simSj(q.span);
-      let k = 0; for (const s of sims) if (q.x < q.fl * s) k++;
+      let k = 0; for (const v of sims) if (q.s < v * 100) k++;  // 실제 사정률이 내 사정률보다 높으면 하한 미달
       out.risk = k / sims.length;
-      const qq = p => sims[Math.floor(p * (sims.length - 1))];
-      out.floorBand = [q.fl * qq(.05), q.fl * qq(.95)];
-      if (hist && hist.length) { out.pastN = hist.length; out.pastWins = hist.filter(b => b.t <= q.x && q.x < b.wr).length; }
+      const qq = p => sims[Math.floor(p * (sims.length - 1))] * 100;
+      out.sjBand = [qq(.05), qq(.95)];
+      if (hist && hist.length) {
+        out.pastN = hist.length; out.pastWins = hist.filter(b => b.t <= q.s && q.s < b.wr).length;
+        out.pastBelow = hist.filter(b => q.s < b.t).length / hist.length;   // 과거 자료에서 하한 미달이었을 비율
+      }
     }
-    if (q.bss && q.x) {
-      out.amount = Math.ceil(q.bss * q.x / 100);
-      if (q.fl) out.floorPrice = [Math.ceil(q.bss * q.fl / 100 * (1 - q.span)), Math.ceil(q.bss * q.fl / 100 * (1 + q.span))];
-    }
+    if (q.bss && q.fl && q.s) out.amount = Math.ceil(q.bss * q.fl / 100 * q.s / 100);
     return out;
   }
 
@@ -267,17 +309,24 @@
 
   /* ---------------------------------------------------------- 공용 데이터 변환 */
   const toObjects = t => t.rows.map(r => Object.fromEntries(t.cols.map((c, i) => [c, r[i]])));
+  /* 하한선(기초 대비 %) 정하기: 하한율 × 사정률(t)이 기본. 1순위보다 싼데 순위가 없는 투찰(ub)이 그보다 높으면
+   * 실제 하한은 ub 위에 있다(공사의 순공사원가 하한 등). 공사인데 ub가 아직 없으면(옛 요약) 하한을 모른다고 본다. */
+  function fixFloor(b) {
+    if (b.ub != null && b.t != null && b.ub > b.t) b.t = b.ub;
+    b.tOk = b.t != null && (b.div !== '공사' || b.ub != null);
+    return b;
+  }
   function prepare(data) {
     return {
       meta: data.meta,
-      bids: toObjects(data.bids).map(b => ({...b, nm: b.nm || '', ind: b.ind || '', rgn: b.rgn || '', _d: Date.parse(b.dt)})),
+      bids: toObjects(data.bids).map(b => fixFloor({...b, nm: b.nm || '', ind: b.ind || '', rgn: b.rgn || '', _d: Date.parse(b.dt)})),
       upcoming: toObjects(data.upcoming).map(n => ({...n, nm: n.nm || '', ind: n.ind || '', rgn: n.rgn || ''})),
     };
   }
 
   const G2B = {CATS, MORE, BUCKETS, customFilter, categoryFilter, categoryLabel, periodRange,
-    quantile, median, mean, wilson, isFail, ymKey, bssBucket, curve, argmax, simSj,
-    strategy, calc, compete, fail, upcoming, mine, prepare};
+    quantile, median, mean, wilson, isFail, ymKey, bssBucket, curve, argmax, simSj, fmtS,
+    strategy, bands, calc, compete, fail, upcoming, mine, prepare};
   if (typeof module !== 'undefined' && module.exports) module.exports = G2B;
   else root.G2B = G2B;
 })(typeof window !== 'undefined' ? window : globalThis);
