@@ -151,14 +151,61 @@ function render() {
 }
 
 /* ---------- 가격 전략 (사정률 구간) */
+/* 칸 쪼개기 그림: 폭 1 칸 하나를 ±0.025(20칸), ±0.01(50칸)로 나누는 모습을 막대 50개로 움직여 보여 준다.
+   막대 j는 단계마다 칸 floor(j·k/50)에 겹쳐 있다가, 칸이 쪼개지면 제자리로 흩어진다. */
+const SPLIT_BARS = 50;
+function splitHtml(M) {
+  if (!M.split) return '';
+  const sp = M.split;
+  return `<span class="split" id="split">
+    <span class="sphead"><b>칸을 쪼개면 어떻게 되나</b> <span class="muted">${sp.from} ~ ${sp.to} 한 칸을 범위별로 나눈 모습 (막대 높이 = 그 칸의 낙찰 확률)</span>
+      <button type="button" class="btn mini" id="spplay">▶ 나눠 보기</button></span>
+    <span class="spplot" aria-hidden="true">${Array.from({length: SPLIT_BARS}, () => '<i class="spbar"></i>').join('')}<i class="spbase"></i></span>
+    <span class="spaxis num"><span>${sp.from}</span><span id="spk"></span><span>${sp.to}</span></span>
+    <span class="spstat" id="spstat" aria-live="polite"></span></span>`;
+}
+function bindSplit(M) {
+  const box = $('#split'); if (!box) return;
+  const sp = M.split, bars = box.querySelectorAll('.spbar');
+  const ymax = Math.max(M.base, ...sp.levels.flatMap(l => l.bins.map(b => b.p))) * 1.12 || 1;
+  box.querySelector('.spbase').style.bottom = (M.base / ymax * 100) + '%';
+  const show = li => {
+    const L = sp.levels[li], k = L.k, best = L.bins.reduce((a, b) => b.p > a.p ? b : a);
+    bars.forEach((el, j) => {
+      const bi = Math.floor(j * k / SPLIT_BARS), b = L.bins[bi];
+      el.style.left = `calc(${bi / k * 100}% + ${k > 30 ? 0.5 : 1}px)`;
+      el.style.width = `calc(${100 / k}% - ${k > 30 ? 1 : 2}px)`;
+      el.style.height = (b.p / ymax * 100) + '%';
+      el.classList.toggle('top', b === best);
+    });
+    const avgW = L.bins.reduce((a, b) => a + b.winners, 0) / k;
+    $('#spk').textContent = `${L.label} → ${k}칸`;
+    $('#spstat').innerHTML = `<b>${L.label}</b>: 칸 ${k}개 · 칸 하나에 든 1순위 평균 <b class="num">${fmt(avgW, avgW < 10 ? 1 : 0)}건</b> · 가장 높은 칸 <b class="num">${best.label}</b> ${pct(best.p, 1)} (그 칸의 1순위 ${fmt(best.winners)}건)` +
+      (k > 1 ? ` — 칸을 잘게 쪼갤수록 가장 높은 막대는 더 높아지지만, 칸마다 든 1순위 수(근거)는 줄어듭니다.` : ` — 한 칸 전체의 평균이라 봉우리와 골짜기가 섞여 있습니다.`);
+  };
+  const cur = Math.max(0, sp.levels.findIndex(l => l.key === M.half.key));
+  const prev = splitPrev ?? cur;
+  box.classList.add('instant'); show(prev); void box.offsetWidth; box.classList.remove('instant');
+  if (prev !== cur) requestAnimationFrame(() => show(cur));
+  splitPrev = cur;
+  let timers = [];
+  $('#spplay').onclick = () => {
+    timers.forEach(clearTimeout);
+    box.classList.add('instant'); show(0); void box.offsetWidth; box.classList.remove('instant');
+    timers = [1, 2].map((li, n) => setTimeout(() => show(li), 1400 * (n + 1)));
+    if (cur !== 2) timers.push(setTimeout(() => show(cur), 1400 * 3 + 600));
+  };
+}
+let splitPrev = null;
+
 function viewStrategy(v, M) {
   S.floor = M.floor;
   const flSel = `<select id="flsel"><option value="all" ${M.floor === 'all' ? 'selected' : ''}>하한율 전체 (사정률로 환산해 함께)</option>${M.floors.map(f => `<option value="${f.value}" ${M.floor === f.value ? 'selected' : ''}>하한율 ${f.value}%만 (${f.count}건)</option>`).join('')}</select>`;
   const skip = M.unknownFloor ? ` <span class="pill warn">하한선을 알 수 없는 공사 ${fmt(M.unknownFloor)}건 제외</span>` : '';
   const widthBtns = `<div class="seg" role="group" aria-label="구간 범위">${A.WIDTHS.map(w => `<button type="button" class="segbtn" data-half="${w.key}" aria-pressed="${M.half.key === w.key}">${w.label}</button>`).join('')}</div>`;
-  const lead = `사정률(투찰금액 ÷ (기초금액 × 하한율) × 100)을 가운데 값 ${M.half.label} 구간으로 나눠, 과거 입찰 ${fmt(M.n)}건에 그 구간으로 넣었다면 1순위가 되었을 확률을 매겼습니다.${skip}
+  const lead = `사정률(투찰금액 ÷ (기초금액 × 하한율) × 100)을 히스토그램처럼 폭 ${A.fmtS(M.width)}짜리 고정 칸(${M.half.label})으로 나눠, 과거 입찰 ${fmt(M.n)}건에 그 칸의 사정률로 넣었다면 1순위가 되었을 확률을 매겼습니다.${skip}
     <span class="ctlrow"><span class="ctl">구간 범위 ${widthBtns}</span><span class="ctl">${flSel}</span></span>
-    <span class="hint"><b>구간 범위는 이렇게 고르세요.</b> 범위를 좁히면(±0.025, ±0.01) 사정률을 더 촘촘하게 볼 수 있습니다. 하지만 과거 1순위가 여러 칸에 흩어지기 때문에, 한 칸에 남는 근거(표의 '이 구간에 든 1순위 수')가 몇 건으로 줄어듭니다. 그러면 우연히 몇 번 맞은 칸이 1순위로 올라오기 쉬워서, 확률 숫자는 높아 보여도 믿을 만함은 떨어집니다. 넓은 범위(±0.5)로 큰 방향을 먼저 정하고, 좁은 범위는 그 안에서 참고용으로 보세요. 성적표가 범위마다 실제로 맞았는지를 따로 알려 줍니다.</span>`;
+    <span class="hint"><b>구간 범위는 이렇게 고르세요.</b> ±0.5는 99~100, 100~101처럼 폭 1 칸, ±0.025는 99.250~99.300처럼 폭 0.05 칸, ±0.01은 폭 0.02 칸입니다. 범위를 좁히면(±0.025, ±0.01) 사정률을 더 촘촘하게 볼 수 있습니다. 하지만 과거 1순위가 여러 칸에 흩어지기 때문에, 한 칸에 남는 근거(표의 '이 구간에 든 1순위 수')가 몇 건으로 줄어듭니다. 그러면 우연히 몇 번 맞은 칸이 1순위로 올라오기 쉬워서, 확률 숫자는 높아 보여도 믿을 만함은 떨어집니다. 넓은 범위(±0.5)로 큰 방향을 먼저 정하고, 좁은 범위는 그 안에서 참고용으로 보세요. 성적표가 범위마다 실제로 맞았는지를 따로 알려 줍니다.</span>${splitHtml(M)}`;
   if (!M.enough) {
     v.innerHTML = card('확률이 높은 사정률 구간', lead, `<div class="empty">표본이 ${M.n}건이라 구간을 매기기 어렵습니다. 기간을 늘리거나 업종을 넓혀 주세요.</div>`) + calcHtml(null);
     bindStrategy(); bindCalc(M.bids); return;
@@ -202,7 +249,7 @@ function viewStrategy(v, M) {
       y: {title: {display: true, text: '낙찰 확률 (%)'}, beginAtZero: true},
       y2: {position: 'right', min: 0, max: 100, title: {display: true, text: '하한 미달 위험 (%)'}, grid: {drawOnChartArea: false}}},
     plugins: {tooltip: {filter: i => i.raw != null && i.datasetIndex > 0, callbacks: {title: i => `사정률 ${A.fmtS(+i[0].label)}`, label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(2)}%`}}}}});
-  bindStrategy(); bindCalc(M.bids);
+  bindStrategy(); bindSplit(M); bindCalc(M.bids);
 }
 function bindStrategy() {
   const f = $('#flsel'); if (f) f.onchange = () => { S.floor = f.value; save(); render(); };

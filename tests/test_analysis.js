@@ -17,6 +17,9 @@ for (const [h, w] of [['0.025', 0.05], ['0.01', 0.02]]) {
   assert(sh.bands.every(b => Math.abs((b.to - b.from) - w) < 1e-6), 'band width ' + h);
   assert(sh.bands.every((b, i) => sh.bands.every((c, j) => i === j || c.to <= b.from + 1e-9 || c.from >= b.to - 1e-9)), 'no overlap ' + h);
 }
+assert(s.bands.every(b => Number.isInteger(b.from)), 'fixed bins on integers');
+assert(s.split && s.split.levels.map(l => l.k).join() === '1,20,50' && s.split.levels.every(l => l.bins.length === l.k), 'split levels');
+assert(s.split.levels[0].bins[0].winners === s.split.levels[1].bins.reduce((a, b) => a + b.winners, 0), 'split keeps winners');
 const c = A.compete(sel); assert(c.nMed > 0 && c.months.length && c.winners.length, 'compete');
 const f = A.fail(sel); assert(f.total === sel.length && f.rate >= 0, 'fail');
 const u = A.upcoming(sel, D.upcoming.filter(cf), D.meta.today); assert(u.rows.length > 0, 'upcoming');

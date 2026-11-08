@@ -187,11 +187,11 @@
   const toSj = b => ({...b, t: b.t / b.fl * 100, wr: b.wr / b.fl * 100});   // 기초 대비 % → 사정률
   const fmtS = v => (Math.round(v * 1000) / 1000).toFixed(3).replace(/\.?0+$/, '');
   /* 구간 폭 선택지: 가운데 값 ± half. 좁을수록 촘촘하지만 구간마다 근거(과거 1순위 수)가 줄어든다 */
-  // step: 구간 경계가 놓이는 눈금(±0.025면 98.050·98.075·98.100…), dp: 표시 자리수
-  const WIDTHS = [{key: '0.5', half: 0.5, step: 0.25, dp: 2, label: '±0.5'}, {key: '0.025', half: 0.025, step: 0.025, dp: 3, label: '±0.025'},
-    {key: '0.01', half: 0.01, step: 0.01, dp: 3, label: '±0.01'}];
+  // 히스토그램처럼 고정 칸: 폭(=half×2)의 정수배에서 칸이 시작한다(±0.5 → 99~100, ±0.025 → 99.250~99.300). dp: 표시 자리수
+  const WIDTHS = [{key: '0.5', half: 0.5, step: 1, dp: 2, label: '±0.5'}, {key: '0.025', half: 0.025, step: 0.05, dp: 3, label: '±0.025'},
+    {key: '0.01', half: 0.01, step: 0.02, dp: 3, label: '±0.01'}];
 
-  /** 폭 width 구간을 step 간격으로 밀며 구간 평균 낙찰 확률을 구하고, 겹치지 않는 상위 k개를 고른다 */
+  /** 폭 width 고정 칸(step = width)마다 평균 낙찰 확률을 구하고 상위 k개를 고른다 (step < width면 밀어 보기) */
   function bands(C, width = 1, step = 0.25, k = 5, wins = [], dp = 2) {
     const n = C.xs.length, pre = new Float64Array(n + 1);
     for (let i = 0; i < n; i++) pre[i + 1] = pre[i] + C.raw[i];
@@ -241,6 +241,11 @@
     res.bands = bands(C, width, step, 5, wins, W.dp);
     // 과거 n건에 이 구간 사정률로 넣었다면 1순위가 됐을 건수(구간 평균이라 '약'으로 표시)
     res.bands.forEach(x => { x.tried = ok.length; x.won = Math.round(x.p * ok.length); });
+    // 칸 쪼개기 그림: 1순위 칸이 든 폭 1 칸(예: 99~100)을 범위별로 나눈 모든 칸
+    if (res.bands.length) {
+      const f0 = Math.floor((res.bands[0].from + res.bands[0].to) / 2 + 1e-9);
+      res.split = {from: f0, to: f0 + 1, levels: WIDTHS.map(w => binsIn(C, w.step, wins, f0, f0 + 1, w.dp, w))};
+    }
     const iSafe = C.below.findIndex(r => r <= 0.05);
     res.safe = iSafe < 0 ? null : {x: C.xs[iSafe], p: C.sm[iSafe]};
     // 성적표: 앞 70%로 1순위 구간을 고르고, 뒤 30%에서 그 구간의 낙찰 확률을 잰다
@@ -253,6 +258,15 @@
     const ts = ok.map(b => b.t);
     res.stats = {sjMed: median(ts), sj05: quantile(ts, .05), sj95: quantile(ts, .95), winMed: median(wins)};
     return res;
+  }
+  /** [from, to)를 폭 width 고정 칸으로 모두 나눈 목록(칸 쪼개기 그림용) */
+  function binsIn(C, width, wins, from, to, dp, W) {
+    const k = Math.round((to - from) / width), out = [];
+    for (let m = 0; m < k; m++) {
+      const a = +(from + m * width).toFixed(3), b = +(from + (m + 1) * width).toFixed(3);
+      out.push({from: a, to: b, p: bands1(C, a, b), winners: wins.filter(w => w >= a && w < b).length, label: `${a.toFixed(dp)} ~ ${b.toFixed(dp)}`});
+    }
+    return {key: W.key, label: W.label, width, k, bins: out};
   }
   /** 정해진 구간 [from, to)의 평균 낙찰 확률 */
   function bands1(C, from, to) {
