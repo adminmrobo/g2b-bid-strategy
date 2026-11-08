@@ -189,7 +189,7 @@ def collect(days_back, budget, max_minutes, refresh_days, notice_months, session
 
 # ---------------------------------------------------------------- build
 BID_COLS = ["id", "nm", "dt", "div", "inst", "dinst", "mth", "cm", "res", "fl", "fle", "ps", "bss", "pre",
-            "n", "nr", "wr", "w2", "wc", "wb", "fw", "t", "ub", "my", "mr", "mq", "ind", "rgn", "rpm"]
+            "n", "nr", "wr", "w2", "wa", "wc", "wb", "fw", "t", "ub", "my", "mr", "mq", "ind", "rgn", "rpm"]
 UP_COLS = ["id", "nm", "div", "st", "ndt", "cls", "odt", "inst", "dinst", "mth", "cm", "ps", "ab", "rpm",
            "rl", "rgn", "ind", "url"]
 

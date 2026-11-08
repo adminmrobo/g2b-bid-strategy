@@ -224,6 +224,51 @@
     return out;
   }
 
+  /* ---------------------------------------------------------- 모델: 데이터 목록 (검증용)
+   * 가격 전략이 쓰는 것과 똑같은 기준으로 입찰마다 '분석 포함 여부'와 빠진 이유를 붙인다.
+   * s(사정률)를 주면 그 사정률로 넣었을 때의 결과(1순위 / 하한 미달 / 2순위 이하)도 붙인다. */
+  const g2bUrl = id => { const [no, od] = String(id || '').split('-'); return no ? `https://www.g2b.go.kr/link/PNPE027_01/single/?bidPbancNo=${no}&bidPbancOrd=${od || '000'}` : ''; };
+  function excludeReason(b) {
+    if (isFail(b)) return '유찰·참가 2개사 미만';
+    if (!(b.wr && b.fl && b.pre && b.bss) || b.t == null) return '금액·하한율 정보 없음';
+    if (b.tOk === false) return '하한선 불명(공사)';
+    if (b.wr < b.t - 0.01) return '1순위가 하한선 아래';
+    return '';
+  }
+  function listRows(sel, s) {
+    const rows = sel.map(b => {
+      const why = excludeReason(b), used = !why;
+      const r = {b, used, why, url: g2bUrl(b.id),
+        sjActual: b.pre && b.bss ? b.pre / b.bss * 100 : null,
+        floorSj: used ? b.t / b.fl * 100 : null,
+        winSj: b.wr && b.fl ? b.wr / b.fl * 100 : null,
+        winAmt: b.wa != null ? b.wa : (b.wr && b.bss ? Math.round(b.wr * b.bss / 100) : null), winAmtExact: b.wa != null};
+      if (s && used) r.outcome = s < r.floorSj ? '하한 미달' : s < r.winSj ? '1순위' : '2순위 이하';
+      return r;
+    });
+    const used = rows.filter(r => r.used), why = {};
+    rows.forEach(r => { if (!r.used) why[r.why] = (why[r.why] || 0) + 1; });
+    const out = {rows, total: rows.length, used: used.length, why};
+    if (s) {
+      out.s = s;
+      out.wins = used.filter(r => r.outcome === '1순위').length;
+      out.below = used.filter(r => r.outcome === '하한 미달').length;
+      out.rate = used.length ? out.wins / used.length : null;
+    }
+    return out;
+  }
+  const CSV_HEAD = ['개찰일', '공고번호', '공고명', '공고기관', '업무구분', '낙찰자결정방법', '개찰결과', '기초금액', '예정가격', '낙찰하한율',
+    '실제사정률', '참가업체수', '순위권업체수', '1순위업체', '1순위사업자번호', '1순위투찰금액', '1순위투찰금액정확', '1순위사정률', '하한선사정률',
+    '가격분석포함', '제외사유', '검증사정률', '검증결과', '나라장터'];
+  function toCsv(L) {
+    const q = v => { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
+    const f = (v, d) => v == null ? '' : (+v).toFixed(d);
+    const lines = [CSV_HEAD.join(',')].concat(L.rows.map(r => { const b = r.b; return [b.dt, b.id, b.nm, b.inst, b.div, b.mth, b.res,
+      b.bss, b.pre, b.fl, f(r.sjActual, 4), b.n, b.nr, b.wc, b.wb, r.winAmt, r.winAmtExact ? 'Y' : '환산', f(r.winSj, 4), f(r.floorSj, 4),
+      r.used ? 'Y' : 'N', r.why, L.s || '', r.outcome || '', r.url].map(q).join(','); }));
+    return '﻿' + lines.join('\r\n');
+  }
+
   /* ---------------------------------------------------------- 모델: 경쟁 */
   const N_BINS = [[2, 10, '2–9'], [10, 30, '10–29'], [30, 100, '30–99'], [100, 300, '100–299'], [300, 1000, '300–999'], [1000, 1e9, '1000+']];
   function compete(sel) {
@@ -326,7 +371,7 @@
 
   const G2B = {CATS, MORE, BUCKETS, customFilter, categoryFilter, categoryLabel, periodRange,
     quantile, median, mean, wilson, isFail, ymKey, bssBucket, curve, argmax, simSj, fmtS,
-    strategy, bands, calc, compete, fail, upcoming, mine, prepare};
+    strategy, bands, calc, listRows, toCsv, g2bUrl, compete, fail, upcoming, mine, prepare};
   if (typeof module !== 'undefined' && module.exports) module.exports = G2B;
   else root.G2B = G2B;
 })(typeof window !== 'undefined' ? window : globalThis);

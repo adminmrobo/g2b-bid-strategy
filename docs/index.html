@@ -92,6 +92,18 @@ main{padding:20px 0 60px}
 .band.main .rng{font-size:24px}
 .band .pp{font-size:14px;color:var(--accent);font-weight:600}
 @media (max-width:760px){.bands{grid-template-columns:repeat(2,minmax(0,1fr))}.band.main{grid-column:1/-1}.band .rng{font-size:14px}.band.main .rng{font-size:22px}}
+.dtools{display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:10px;align-items:end;margin-bottom:8px}
+@media (max-width:860px){.dtools{grid-template-columns:1fr 1fr}}
+.dtools .btn{white-space:nowrap}
+.dlist table{min-width:980px;font-size:13px}
+.dlist td,.dlist th{padding:7px 7px}
+.dlist td,.dlist th{white-space:nowrap}
+.dlist td.wrap{white-space:normal;min-width:96px;max-width:140px}
+.dlist td.wrap.nm{min-width:220px;max-width:300px}
+.pill{white-space:nowrap}
+.pager{display:flex;gap:10px;align-items:center;justify-content:center;margin-top:12px}
+.pager .btn[disabled]{opacity:.4;cursor:default}
+.btn.mini{padding:4px 10px;font-size:12px;white-space:nowrap}
 .rec{border:1px solid var(--line);border-radius:12px;padding:12px 14px}
 .rec.main{border-color:var(--accent);background:var(--accent-soft)}
 .rec .t{font-size:13px;color:var(--muted)}

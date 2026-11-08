@@ -74,7 +74,7 @@ window.G2BUI = {go(tab) { if (S.tab !== tab) { S.tab = tab; save(); buildControl
 
 /* ------------------------------------------------------------ 상태·조작부 */
 const PERIODS = [['1', '1개월'], ['3', '3개월'], ['6', '6개월'], ['12', '1년']];
-const TABS = [['strategy', '가격 전략'], ['compete', '경쟁 분석'], ['fail', '유찰 분석'], ['upcoming', '진행 공고'], ['mine', '내 회사']];
+const TABS = [['strategy', '가격 전략'], ['compete', '경쟁 분석'], ['fail', '유찰 분석'], ['upcoming', '진행 공고'], ['mine', '내 회사'], ['data', '데이터 목록']];
 const S = {cats: ['nara'], period: '6', tab: 'strategy', floor: 'all', custom: {}};
 try { Object.assign(S, JSON.parse(store.get('g2b_state') || '{}')); } catch (e) {}
 if (!S.v2) { S.cats = ['nara']; S.floor = 'all'; S.v2 = 1; }   // 판 2: 기본 업종을 '전기·소방 감리'로
@@ -145,6 +145,7 @@ function render() {
   if (S.tab === 'compete') return viewCompete(v, A.compete(sel));
   if (S.tab === 'fail') return viewFail(v, A.fail(sel));
   if (S.tab === 'mine') return viewMine(v, A.mine(sel));
+  if (S.tab === 'data') return viewData(v, sel);
 }
 
 /* ---------- 가격 전략 (사정률 구간) */
@@ -163,8 +164,9 @@ function viewStrategy(v, M) {
     <div class="bands">${B.map(b => `<div class="band ${b.rank === 1 ? 'main' : ''}">
       <div class="rk">${b.rank}순위</div><div class="rng num">${b.label}</div><div class="pp num">약 ${pct(b.p, 1)}</div></div>`).join('')}</div>
     <div class="tablewrap"><table>
-      <tr><th>순위</th><th>사정률 구간</th><th class="r">낙찰 확률</th><th class="r">구간 가운데에서 하한 미달 위험</th><th class="r">이 구간에 든 1순위 수</th></tr>
-      ${B.map(b => tr([`${b.rank}순위`, [b.label, 'num'], R(`<b>${pct(b.p, 2)}</b>`), R(riskTxt(b.riskMid)), R(fmt(b.winners) + '건')])).join('')}
+      <tr><th>순위</th><th>사정률 구간</th><th class="r">낙찰 확률</th><th class="r">구간 가운데에서 하한 미달 위험</th><th class="r">이 구간에 든 1순위 수</th><th>검증</th></tr>
+      ${B.map(b => tr([`${b.rank}순위`, [b.label, 'num'], R(`<b>${pct(b.p, 2)}</b>`), R(riskTxt(b.riskMid)), R(fmt(b.winners) + '건'),
+        `<button class="btn mini verify" type="button" data-s="${A.fmtS((b.from + b.to) / 2)}">목록 보기</button>`])).join('')}
     </table></div>
     <p class="note">낙찰 확률은 구간 안 어디에 넣든 평균적으로 1순위가 됐을 비율입니다. 하한 미달 위험은 실제 사정률이 내 사정률보다 높게 나와 하한선 아래가 될 확률입니다. 무작위 기준선(1/참가업체 수)은 <b class="num">${pct(M.base, 2)}</b>입니다.</p>
     <div class="chartbox"><canvas id="cv"></canvas></div>
@@ -196,6 +198,9 @@ function viewStrategy(v, M) {
 }
 function bindStrategy() {
   const f = $('#flsel'); if (f) f.onchange = () => { S.floor = f.value; save(); render(); };
+  document.querySelectorAll('.verify').forEach(b => b.onclick = () => {
+    S.verifyS = b.dataset.s; S.dview = 'used'; S.dpage = 0; S.tab = 'data'; save(); buildControls(); render(); window.scrollTo(0, 0);
+  });
 }
 function calcHtml(fl, s) {
   return card('투찰금액 계산기', '공고의 기초금액과 하한율, 넣을 사정률을 입력하면 투찰금액을 원 단위로 계산합니다. 하한 미달 위험은 복수예가 추첨(15개 중 4개 평균)을 2만 번 돌려 본 값입니다.', `
@@ -302,4 +307,60 @@ function viewMine(v, M) {
   ]) + card('최근 참여 내역', '실제 1순위 수가 무작위 기대보다 꾸준히 적다면 투찰률 습관(하한선과의 거리)을 점검하세요.', table(
     [['개찰일'], ['공고명'], ['참가', 'r'], ['내 투찰률', 'r'], ['하한선', 'r'], ['1순위', 'r'], ['결과']],
     M.list.slice(0, 80).map(b => tr([[b.dt, 'num'], esc(b.nm), R(b.n), R(fmt(b.my, 3)), R(fmt(b.t, 3)), R(fmt(b.wr, 3)), res(b)]))));
+}
+
+/* ---------- 데이터 목록 (검증용) */
+const DSORT = {dt: (a, b) => (b.b._d - a.b._d), n: (a, b) => (b.b.n - a.b.n), bss: (a, b) => ((b.b.bss || 0) - (a.b.bss || 0)),
+  win: (a, b) => (a.outcome === '1순위' ? 0 : 1) - (b.outcome === '1순위' ? 0 : 1) || (b.b._d - a.b._d)};
+const PAGE = 50;
+function viewData(v, sel) {
+  const sNum = parseFloat(S.verifyS);
+  const L = A.listRows(sel, isFinite(sNum) && sNum > 0 ? sNum : null);
+  const q = (S.dq || '').trim();
+  let rows = L.rows;
+  if (S.dview === 'used') rows = rows.filter(r => r.used);
+  else if (S.dview === 'excl') rows = rows.filter(r => !r.used);
+  if (q) rows = rows.filter(r => [r.b.nm, r.b.inst, r.b.wc, r.b.id].some(x => (x || '').includes(q)));
+  rows = rows.slice().sort(DSORT[S.dsort] || DSORT.dt);
+  const pages = Math.max(1, Math.ceil(rows.length / PAGE)), pg = Math.min(S.dpage || 0, pages - 1);
+  const whyTxt = Object.entries(L.why).map(([k, c]) => `${k} ${fmt(c)}`).join(' · ') || '없음';
+  const pill = o => o === '1순위' ? '<span class="pill ok">1순위</span>' : o === '하한 미달' ? '<span class="pill warn">하한 미달</span>' : o ? `<span class="pill">${o}</span>` : '';
+  v.innerHTML = kpis([
+    ['목록', fmt(L.total) + '건', esc(A.categoryLabel(S.cats))],
+    ['가격 분석에 쓰인 입찰', fmt(L.used) + '건', `빠진 것: ${esc(whyTxt)}`],
+    ...(L.s ? [[`사정률 ${A.fmtS(L.s)}로 넣었다면`, pct(L.rate, 2), `1순위 ${fmt(L.wins)}건 · 하한 미달 ${fmt(L.below)}건 / ${fmt(L.used)}건`]] : []),
+  ]) + card('데이터 목록', '가격 전략·경쟁 분석이 실제로 쓴 입찰입니다. 공고번호를 누르면 나라장터 원문이 열리니 금액과 순위를 직접 대조해 보세요. 사정률을 넣으면 입찰마다 그 사정률이었을 때의 결과를 보여 줍니다.', `
+    <div class="dtools">
+      <div class="field"><label>검색 (공고명·기관·업체·공고번호)</label><input id="d_q" value="${esc(S.dq || '')}" placeholder="예: 감리자(전기)"></div>
+      <div class="field"><label>보기</label><select id="d_view"><option value="all">전체</option><option value="used">가격 분석에 쓰인 것</option><option value="excl">빠진 것</option></select></div>
+      <div class="field"><label>정렬</label><select id="d_sort"><option value="dt">개찰일 최신</option><option value="n">참가업체 많은 순</option><option value="bss">기초금액 큰 순</option><option value="win">검증 결과 1순위 먼저</option></select></div>
+      <div class="field"><label>검증할 사정률 (%)</label><input id="d_s" type="number" step="0.01" value="${esc(S.verifyS || '')}" placeholder="예: 99.25"></div>
+      <div class="field"><label>&nbsp;</label><button class="btn" id="d_csv" type="button">CSV 내려받기 (${fmt(rows.length)}건)</button></div>
+    </div>
+    ${L.s ? `<p class="note">검증 사정률 ${A.fmtS(L.s)}: '포함'인 입찰마다 실제 사정률(하한선)과 1순위 사정률 사이에 들면 1순위, 하한선보다 낮으면 하한 미달로 셉니다. 가격 전략의 구간 확률은 구간 안 여러 사정률의 평균이라 한 점의 값과 조금 다를 수 있습니다.</p>` : ''}
+    <p class="note">${fmt(rows.length)}건 중 ${fmt(pg * PAGE + (rows.length ? 1 : 0))}–${fmt(Math.min(rows.length, (pg + 1) * PAGE))}번째. 1순위 투찰금액에 '≈'가 붙은 것은 투찰률에서 되돌려 계산한 값입니다(다음 수집부터 원 단위 그대로 저장).</p>
+    ${rows.length ? '<div class="dlist">' + table([['개찰일'], ...(L.s ? [['검증']] : []), ['공고번호·공고명'], ['기관'], ['방법·결과'], ['기초금액', 'r'], ['하한율 / 실제 사정률', 'r'], ['참가', 'r'], ['1순위 업체'], ['1순위 투찰금액', 'r'], ['1순위 사정률', 'r'], ...(S.dview === 'used' ? [] : [['분석']])],
+      rows.slice(pg * PAGE, (pg + 1) * PAGE).map(r => { const b = r.b; return tr([
+        [b.dt, 'num'], ...(L.s ? [pill(r.outcome) || '<span class="muted">–</span>'] : []),
+        [`<a href="${esc(r.url)}" target="_blank" rel="noopener" class="num">${esc(b.id)}</a><br>${esc(b.nm)}`, 'wrap nm'],
+        [esc(b.inst), 'wrap'], [`${esc(b.mth)}<br><span class="muted">${esc(b.res)}</span>`, 'wrap'],
+        R(b.bss ? fmt(b.bss) : '–'), R(`${b.fl != null ? fmt(b.fl, 3) : '–'}<br><span class="muted">${fmt(r.sjActual, 3)}</span>`),
+        R(`${fmt(b.n)}<br><span class="muted">순위권 ${fmt(b.nr)}</span>`), [esc(b.wc || '–'), 'wrap'],
+        R(r.winAmt != null ? (r.winAmtExact ? '' : '≈') + fmt(r.winAmt) : '–'), R(fmt(r.winSj, 3)),
+        ...(S.dview === 'used' ? [] : [r.used ? '<span class="pill ok">포함</span>' : `<span class="pill">${esc(r.why)}</span>`])]); })) + '</div>'
+      : '<div class="empty">조건에 맞는 입찰이 없습니다.</div>'}
+    <div class="pager">${pages > 1 ? `<button class="btn" id="d_prev" ${pg ? '' : 'disabled'}>← 이전</button><span class="num">${pg + 1} / ${pages}</span><button class="btn" id="d_next" ${pg < pages - 1 ? '' : 'disabled'}>다음 →</button>` : ''}</div>`);
+  $('#d_view').value = S.dview || 'all'; $('#d_sort').value = S.dsort || 'dt';
+  const re = () => { save(); render(); };
+  $('#d_q').oninput = e => { S.dq = e.target.value; S.dpage = 0; clearTimeout(viewData._t); viewData._t = setTimeout(() => { re(); const el = $('#d_q'); el.focus(); el.setSelectionRange(el.value.length, el.value.length); }, 300); };
+  $('#d_view').onchange = e => { S.dview = e.target.value; S.dpage = 0; re(); };
+  $('#d_sort').onchange = e => { S.dsort = e.target.value; S.dpage = 0; re(); };
+  $('#d_s').onchange = e => { S.verifyS = e.target.value; S.dpage = 0; re(); };
+  if ($('#d_prev')) { $('#d_prev').onclick = () => { S.dpage = pg - 1; re(); }; $('#d_next').onclick = () => { S.dpage = pg + 1; re(); }; }
+  $('#d_csv').onclick = () => {
+    const blob = new Blob([A.toCsv({...L, rows})], {type: 'text/csv;charset=utf-8'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `g2b_list_${(S.cats.join('+') || 'all').replace(/[^\w+]+/g, '_')}_${D.meta.last}${L.s ? '_s' + A.fmtS(L.s) : ''}.csv`;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  };
 }

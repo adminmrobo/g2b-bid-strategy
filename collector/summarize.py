@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """API 원자료(업체별 행) → 입찰 1건 = 1레코드 요약.
 
-SUMMARY_VERSION 2: 'ub'(1순위보다 낮은데 순위가 없는 투찰 중 가장 높은 것, 기초 대비 %) 추가.
+SUMMARY_VERSION 2: 'wa'(1순위 투찰금액, 원), 'ub'(1순위보다 낮은데 순위가 없는 투찰 중 가장 높은 것, 기초 대비 %) 추가.
   공사는 순공사원가 등 다른 하한 규칙이 붙어 '하한율 × 예정가격'과 실제 하한이 다를 수 있다.
   실제 하한은 ub와 1순위 투찰률 사이에 있으므로, 화면은 max(t, ub)를 하한선으로 쓴다.
 
@@ -95,6 +95,7 @@ def summarize_scsbid(rows, my_biznos=()):
             "ps": num(f.get("presmptPrce")), "bss": bss, "pre": pre,
             "n": len(bidders), "nr": len(ranked),
             "wr": r4(rb(win)), "w2": r4(rb(sec)),
+            "wa": win["amt"] if win else None,
             "wc": win["nm"] if win else "", "wb": win["biz"] if win else "",
             "fw": (f.get("fnlSucsfCorpNm") or "").strip(),
             "ub": r4(ub),
