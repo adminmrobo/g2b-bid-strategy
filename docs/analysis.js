@@ -185,7 +185,10 @@
    *   [실제 사정률(예정÷기초×100),  1순위 투찰금액÷(기초×하한율)×100)
    * 이라서, 하한율이 다른 입찰도 한 축에 모아 비교할 수 있다.                        */
   const toSj = b => ({...b, t: b.t / b.fl * 100, wr: b.wr / b.fl * 100});   // 기초 대비 % → 사정률
-  const fmtS = v => (Math.round(v * 100) / 100).toFixed(2).replace(/\.?0+$/, '');
+  const fmtS = v => (Math.round(v * 1000) / 1000).toFixed(3).replace(/\.?0+$/, '');
+  /* 구간 폭 선택지: 가운데 값 ± half. 좁을수록 촘촘하지만 구간마다 근거(과거 1순위 수)가 줄어든다 */
+  const WIDTHS = [{key: '0.5', half: 0.5, step: 0.25, label: '±0.5'}, {key: '0.025', half: 0.025, step: 0.005, label: '±0.025'},
+    {key: '0.01', half: 0.01, step: 0.005, label: '±0.01'}];
 
   /** 폭 width 구간을 step 간격으로 밀며 구간 평균 낙찰 확률을 구하고, 겹치지 않는 상위 k개를 고른다 */
   function bands(C, width = 1, step = 0.25, k = 5, wins = []) {
@@ -222,8 +225,9 @@
     if (floor !== 'all' && !cnt[floor]) floor = 'all';
     if (floor !== 'all') ok = ok.filter(b => b.fl.toFixed(3) === floor);
     ok = ok.map(toSj).sort((a, b) => a._d - b._d);
-    const width = opts.width || 1, step = opts.step || 0.25;
-    const res = {floors, floor, bids: ok, n: ok.length, base: mean(ok.map(b => 1 / b.n)), enough: ok.length >= 20, width, unknownFloor};
+    const W = WIDTHS.find(w => w.key === String(opts.half)) || WIDTHS[0];
+    const width = W.half * 2, step = W.step;
+    const res = {floors, floor, bids: ok, n: ok.length, base: mean(ok.map(b => 1 / b.n)), enough: ok.length >= 20, width, half: W, unknownFloor};
     if (!res.enough) return res;
 
     const lo = Math.floor(quantile(ok.map(b => b.t), .005) - 1.5);
@@ -235,7 +239,7 @@
     res.safe = iSafe < 0 ? null : {x: C.xs[iSafe], p: C.sm[iSafe]};
     // 성적표: 앞 70%로 1순위 구간을 고르고, 뒤 30%에서 그 구간의 낙찰 확률을 잰다
     const cut = Math.floor(ok.length * 0.7), tr = ok.slice(0, cut), te = ok.slice(cut);
-    const bTr = bands(curve(tr, lo, hi), width, step, 1)[0];
+    const bTr = bands(curve(tr, lo, hi), width, step, 1, tr.map(b => b.wr))[0];
     const bTe = bTr ? bands1(curve(te, lo, hi), bTr.from, bTr.to) : 0;
     const [wl, wh] = wilson(Math.round(bTe * te.length), te.length);
     const teBase = mean(te.map(b => 1 / b.n));
@@ -416,7 +420,7 @@
   }
 
   const G2B = {CATS, MORE, BUCKETS, customFilter, categoryFilter, categoryLabel, periodRange,
-    quantile, median, mean, wilson, isFail, ymKey, bssBucket, curve, argmax, simSj, fmtS,
+    quantile, median, mean, wilson, isFail, ymKey, bssBucket, curve, argmax, simSj, fmtS, WIDTHS,
     strategy, bands, calc, listRows, toCsv, g2bUrl, parseRule, matchRule, keywordCheck, norm, NARA_GROUPS, compete, fail, upcoming, mine, prepare};
   if (typeof module !== 'undefined' && module.exports) module.exports = G2B;
   else root.G2B = G2B;

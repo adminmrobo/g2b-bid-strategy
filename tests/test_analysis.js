@@ -12,6 +12,11 @@ assert(s.bands.every((b, i) => s.bands.every((c, j) => i === j || c.to <= b.from
 // 사정률 정의 검산: 1순위 구간 가운데 사정률로 실제 1순위였던 건수
 const mid = (s.bands[0].from + s.bands[0].to) / 2, direct = s.bids.filter(b => b.t <= mid && mid < b.wr).length;
 assert(direct === A.calc({fl: 87.745, span: 0.03, s: mid}, s.bids).pastWins, 'calc pastWins == direct count');
+for (const [h, w] of [['0.025', 0.05], ['0.01', 0.02]]) {
+  const sh = A.strategy(sel, {half: h});
+  assert(sh.bands.every(b => Math.abs((b.to - b.from) - w) < 1e-6), 'band width ' + h);
+  assert(sh.bands.every((b, i) => sh.bands.every((c, j) => i === j || c.to <= b.from + 1e-9 || c.from >= b.to - 1e-9)), 'no overlap ' + h);
+}
 const c = A.compete(sel); assert(c.nMed > 0 && c.months.length && c.winners.length, 'compete');
 const f = A.fail(sel); assert(f.total === sel.length && f.rate >= 0, 'fail');
 const u = A.upcoming(sel, D.upcoming.filter(cf), D.meta.today); assert(u.rows.length > 0, 'upcoming');

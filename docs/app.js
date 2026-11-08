@@ -143,7 +143,7 @@ function render() {
   const v = $('#view');
   if (S.tab === 'upcoming') return viewUpcoming(v, A.upcoming(sel, D.upcoming.filter(cf), D.meta.today));
   if (!sel.length) { v.innerHTML = '<div class="empty">조건에 맞는 입찰이 없습니다. 업종이나 기간을 넓혀 보세요.</div>'; return; }
-  if (S.tab === 'strategy') return viewStrategy(v, A.strategy(sel, {floor: S.floor}));
+  if (S.tab === 'strategy') return viewStrategy(v, A.strategy(sel, {floor: S.floor, half: S.half || '0.5'}));
   if (S.tab === 'compete') return viewCompete(v, A.compete(sel));
   if (S.tab === 'fail') return viewFail(v, A.fail(sel));
   if (S.tab === 'mine') return viewMine(v, A.mine(sel));
@@ -155,7 +155,10 @@ function viewStrategy(v, M) {
   S.floor = M.floor;
   const flSel = `<select id="flsel"><option value="all" ${M.floor === 'all' ? 'selected' : ''}>하한율 전체 (사정률로 환산해 함께)</option>${M.floors.map(f => `<option value="${f.value}" ${M.floor === f.value ? 'selected' : ''}>하한율 ${f.value}%만 (${f.count}건)</option>`).join('')}</select>`;
   const skip = M.unknownFloor ? ` <span class="pill warn">하한선을 알 수 없는 공사 ${fmt(M.unknownFloor)}건 제외</span>` : '';
-  const lead = `사정률(투찰금액 ÷ (기초금액 × 하한율) × 100)을 폭 ${M.width} 구간으로 나눠, 과거 입찰 ${fmt(M.n)}건에 그 구간으로 넣었다면 1순위가 되었을 확률을 매겼습니다.${skip} ${flSel}`;
+  const widthBtns = `<div class="seg" role="group" aria-label="구간 범위">${A.WIDTHS.map(w => `<button type="button" class="segbtn" data-half="${w.key}" aria-pressed="${M.half.key === w.key}">${w.label}</button>`).join('')}</div>`;
+  const lead = `사정률(투찰금액 ÷ (기초금액 × 하한율) × 100)을 가운데 값 ${M.half.label} 구간으로 나눠, 과거 입찰 ${fmt(M.n)}건에 그 구간으로 넣었다면 1순위가 되었을 확률을 매겼습니다.${skip}
+    <span class="ctlrow"><span class="ctl">구간 범위 ${widthBtns}</span><span class="ctl">${flSel}</span></span>
+    <span class="hint"><b>구간 범위는 이렇게 고르세요.</b> 범위를 좁히면(±0.025, ±0.01) 사정률을 더 촘촘하게 볼 수 있습니다. 하지만 과거 1순위가 여러 칸에 흩어지기 때문에, 한 칸에 남는 근거(표의 '이 구간에 든 1순위 수')가 몇 건으로 줄어듭니다. 그러면 우연히 몇 번 맞은 칸이 1순위로 올라오기 쉬워서, 확률 숫자는 높아 보여도 믿을 만함은 떨어집니다. 넓은 범위(±0.5)로 큰 방향을 먼저 정하고, 좁은 범위는 그 안에서 참고용으로 보세요. 성적표가 범위마다 실제로 맞았는지를 따로 알려 줍니다.</span>`;
   if (!M.enough) {
     v.innerHTML = card('확률이 높은 사정률 구간', lead, `<div class="empty">표본이 ${M.n}건이라 구간을 매기기 어렵습니다. 기간을 늘리거나 업종을 넓혀 주세요.</div>`) + calcHtml(null);
     bindStrategy(); bindCalc(M.bids); return;
@@ -167,7 +170,7 @@ function viewStrategy(v, M) {
       <div class="rk">${b.rank}순위</div><div class="rng num">${b.label}</div><div class="pp num">약 ${pct(b.p, 1)}</div></div>`).join('')}</div>
     <div class="tablewrap"><table>
       <tr><th>순위</th><th>사정률 구간</th><th class="r">낙찰 확률</th><th class="r">구간 가운데에서 하한 미달 위험</th><th class="r">이 구간에 든 1순위 수</th><th>검증</th></tr>
-      ${B.map(b => tr([`${b.rank}순위`, [b.label, 'num'], R(`<b>${pct(b.p, 2)}</b>`), R(riskTxt(b.riskMid)), R(fmt(b.winners) + '건'),
+      ${B.map(b => tr([`${b.rank}순위`, [b.label, 'num'], R(`<b>${pct(b.p, 2)}</b>`), R(riskTxt(b.riskMid)), R(fmt(b.winners) + '건' + (b.winners < 10 ? ' <span class="pill warn">근거 적음</span>' : '')),
         `<button class="btn mini verify" type="button" data-s="${A.fmtS((b.from + b.to) / 2)}">목록 보기</button>`])).join('')}
     </table></div>
     <p class="note">낙찰 확률은 구간 안 어디에 넣든 평균적으로 1순위가 됐을 비율입니다. 하한 미달 위험은 실제 사정률이 내 사정률보다 높게 나와 하한선 아래가 될 확률입니다. 무작위 기준선(1/참가업체 수)은 <b class="num">${pct(M.base, 2)}</b>입니다.</p>
@@ -200,6 +203,7 @@ function viewStrategy(v, M) {
 }
 function bindStrategy() {
   const f = $('#flsel'); if (f) f.onchange = () => { S.floor = f.value; save(); render(); };
+  document.querySelectorAll('.segbtn').forEach(b => b.onclick = () => { S.half = b.dataset.half; save(); render(); });
   document.querySelectorAll('.verify').forEach(b => b.onclick = () => {
     S.verifyS = b.dataset.s; S.dview = 'used'; S.dpage = 0; S.tab = 'data'; save(); buildControls(); render(); window.scrollTo(0, 0);
   });
@@ -210,7 +214,7 @@ function calcHtml(fl, s) {
     <div class="field"><label>기초금액 (원)</label><input id="k_bss" inputmode="numeric" value="${esc(store.get('g2b_kbss') || '')}" placeholder="예: 512,300,000"></div>
     <div class="field"><label>낙찰하한율 (%)</label><input id="k_fl" type="number" step="0.001" value="${fl ?? 86.745}"></div>
     <div class="field"><label>예비가격 범위</label><select id="k_sp"><option value="0.02">±2% (국가기관·조달청)</option><option value="0.03">±3% (지자체 등)</option></select></div>
-    <div class="field"><label>사정률 (%)</label><input id="k_s" type="number" step="0.01" value="${s ? A.fmtS(s) : ''}"></div>
+    <div class="field"><label>사정률 (%)</label><input id="k_s" type="number" step="0.001" value="${s ? A.fmtS(s) : ''}"></div>
   </div>
   <div class="two"><div><div class="note">투찰금액 = 기초금액 × 하한율 × 사정률</div><div class="out" id="k_amt">–</div><div class="note" id="k_note"></div></div>
   <div><div class="note">하한 미달 위험 (추첨 시뮬레이션 · 과거 실제 비율)</div><div class="out" id="k_risk">–</div><div class="note" id="k_hist"></div></div></div>
@@ -384,7 +388,7 @@ function viewData(v, sel, all) {
       <div class="field"><label>검색 (공고명·기관·업체·공고번호)</label><input id="d_q" value="${esc(S.dq || '')}" placeholder="예: 감리자(전기)"></div>
       <div class="field"><label>보기</label><select id="d_view"><option value="all">전체</option><option value="used">가격 분석에 쓰인 것</option><option value="excl">빠진 것</option></select></div>
       <div class="field"><label>정렬</label><select id="d_sort"><option value="dt">개찰일 최신</option><option value="n">참가업체 많은 순</option><option value="bss">기초금액 큰 순</option><option value="win">검증 결과 1순위 먼저</option></select></div>
-      <div class="field"><label>검증할 사정률 (%)</label><input id="d_s" type="number" step="0.01" value="${esc(S.verifyS || '')}" placeholder="예: 99.25"></div>
+      <div class="field"><label>검증할 사정률 (%)</label><input id="d_s" type="number" step="0.001" value="${esc(S.verifyS || '')}" placeholder="예: 99.25"></div>
       <div class="field"><label>&nbsp;</label><button class="btn" id="d_csv" type="button">CSV 내려받기 (${fmt(rows.length)}건)</button></div>
     </div>
     ${L.s ? `<p class="note">검증 사정률 ${A.fmtS(L.s)}: '포함'인 입찰마다 실제 사정률(하한선)과 1순위 사정률 사이에 들면 1순위, 하한선보다 낮으면 하한 미달로 셉니다. 가격 전략의 구간 확률은 구간 안 여러 사정률의 평균이라 한 점의 값과 조금 다를 수 있습니다.</p>` : ''}
