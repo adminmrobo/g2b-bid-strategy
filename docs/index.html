@@ -101,6 +101,14 @@ main{padding:20px 0 60px}
 .dlist td.wrap{white-space:normal;min-width:96px;max-width:140px}
 .dlist td.wrap.nm{min-width:220px;max-width:300px}
 .pill{white-space:nowrap}
+mark{background:#fde68a;color:inherit;border-radius:3px;padding:0 1px}
+:root[data-theme="dark"] mark{background:#7c5c14}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) mark{background:#7c5c14}}
+.rulehelp,.nearlist{margin-top:10px;border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:var(--panel)}
+.rulehelp summary,.nearlist summary{cursor:pointer;font-size:14px;color:var(--accent);font-weight:500}
+table.rules td{white-space:normal;font-size:13px}
+table.rules code,.card code{font-family:var(--mono);background:var(--soft);padding:1px 6px;border-radius:5px}
+h3.sub{font-size:14px;margin:14px 0 6px}
 .pager{display:flex;gap:10px;align-items:center;justify-content:center;margin-top:12px}
 .pager .btn[disabled]{opacity:.4;cursor:default}
 .btn.mini{padding:4px 10px;font-size:12px;white-space:nowrap}
@@ -211,7 +219,7 @@ footer{font-size:12px;color:var(--muted);padding:20px 0 40px}
         <div class="more" id="morerow"></div>
         <div id="custom">
           <div class="grid">
-            <div class="field"><label>공고명 키워드 ( + 는 모두, 쉼표는 하나라도)</label><input id="c_inc" placeholder="예: 전기+감리, 소방+감리"></div>
+            <div class="field"><label>공고명 키워드 ( + 는 모두, 쉼표는 하나라도, 띄어쓰기 무시)</label><input id="c_inc" placeholder="예: 전기+감리, 소방+감리"></div>
             <div class="field"><label>제외 키워드</label><input id="c_exc" placeholder="예: 통신, 물품"></div>
             <div class="field"><label>업무구분</label><select id="c_div"><option value="">전체</option><option>공사</option><option>용역</option></select></div>
             <div class="field"><label>투찰가능 업종 포함</label><input id="c_ind" placeholder="예: 전기공사업"></div>
@@ -221,6 +229,8 @@ footer{font-size:12px;color:var(--muted);padding:20px 0 40px}
             <div class="field"><label>기초금액 상한 (억원)</label><input id="c_max" type="number" step="0.1" min="0"></div>
             <div class="field"><label>낙찰자결정방법 포함</label><input id="c_mth" placeholder="예: 적격심사"></div>
           </div>
+          <details class="rulehelp" id="c_help"><summary>키워드 규칙 보기 — 전기+감리 · 전기+감리자 · 전기감리자는 어떻게 다른가요?</summary><div id="c_rules"></div>
+            <p class="note">실제로 어떤 공고가 잡히고 빠졌는지는 <button type="button" class="btn mini" id="c_check">데이터 목록 → 검색어 확인</button>에서 볼 수 있습니다.</p></details>
         </div>
         <div class="row" id="perrow"><span class="lbl">기간</span></div>
       </div>

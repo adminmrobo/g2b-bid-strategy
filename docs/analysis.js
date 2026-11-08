@@ -15,10 +15,55 @@
 
   /* ---------------------------------------------------------- 업종 정의 */
   const has = (s, re) => re.test(s || '');
+
+  /* ---------------------------------------------------------- 공고명 키워드 규칙
+   * '+' 는 모두 들어가야 함(순서·위치 상관없음), 쉼표(,) 는 묶음 중 하나라도.
+   * 띄어쓰기는 무시한다(공고명과 키워드 모두 공백을 지우고 비교).
+   *   전기+감리   → '전기'와 '감리'가 모두 있는 공고 (감리자(전기), 전기감리자, 전기공사 감리용역 …)
+   *   전기+감리자 → '전기'와 '감리자'가 모두 있는 공고 (감리자(전기), 전기감리자 … / 전기공사 감리용역은 빠짐)
+   *   전기감리자  → '전기감리자'가 붙어 있는 그대로 있는 공고 (감리자(전기)는 빠짐)                          */
+  const norm = s => String(s || '').replace(/\s+/g, '');
+  function parseRule(str) {
+    return String(str || '').split(',').map(g => g.split('+').map(norm).filter(Boolean)).filter(g => g.length);
+  }
+  /** 맞는 첫 묶음의 번호, 없으면 -1 */
+  function matchRule(nm, groups) {
+    const t = norm(nm);
+    for (let i = 0; i < groups.length; i++) if (groups[i].every(k => t.includes(k))) return i;
+    return -1;
+  }
+  const NARA_GROUPS = parseRule('전기+감리, 소방+감리');
+  // 다른 낱말 속에 들어 있어 엉뚱하게 걸릴 수 있는 경우 (예: '전기차' 속의 '전기')
+  const AMBIG = {'전기': ['전기차', '전기자동차', '전기버스'], '소방': ['소방차', '소방서'], '감리': ['감리교']};
+  /** 키워드 검색 확인: 잡힌 것, 애매하게 잡힌 것, 한 낱말만 있어 빠진 것 */
+  function keywordCheck(bids, groups) {
+    const matched = [], ambiguous = [], near = [];
+    bids.forEach(b => {
+      const t = norm(b.nm), gi = matchRule(b.nm, groups);
+      if (gi >= 0) {
+        matched.push(b);
+        // 맞은 묶음의 낱말 중, 공고명에서 그 낱말이 전부 '다른 낱말 속'에만 있으면 애매
+        const why = groups[gi].filter(k => AMBIG[k] && (() => { let r = t; AMBIG[k].forEach(w => { r = r.split(w).join(''); }); return !r.includes(k); })());
+        if (why.length) ambiguous.push({b, why: why.map(k => `${AMBIG[k].filter(w => t.includes(w)).map(w => `'${w}'`).join('·')} 속의 '${k}'만 있음`).join(', ')});
+      } else {
+        // 가장 많이 맞은 묶음 기준으로 무엇이 없어서 빠졌는지
+        // 가장 많이 맞은 묶음들 기준으로 무엇이 없어서 빠졌는지 (동률이면 없는 낱말을 '또는'으로 묶음)
+        const hits = groups.map(g => g.filter(k => t.includes(k))), top = Math.max(...hits.map(h => h.length));
+        if (top > 0) {
+          const idx = hits.map((h, i) => h.length === top ? i : -1).filter(i => i >= 0);
+          const miss = [...new Set(idx.flatMap(i => groups[i].filter(k => !t.includes(k))))];
+          near.push({b, has: [...new Set(idx.flatMap(i => hits[i]))], miss});
+        }
+      }
+    });
+    const missCount = {};
+    near.forEach(x => { x.why = `${x.has.map(w => `'${w}'`).join('·')} 있음 · ${x.miss.map(w => `'${w}'`).join('·')} 없음`; missCount[x.why] = (missCount[x.why] || 0) + 1; });
+    return {groups, matched, ambiguous, near, missCount};
+  }
   const CATS = [
     // 나라기술단 기준: 공고명에 '감리'가 있고, '전기' 또는 '소방'이 있는 것
     // (감리자(전기) · 감리자(소방) · 전기(감리자) · 소방감리자 · 전기감리 용역 …)
-    {k: 'nara', label: '전기·소방 감리', f: b => has(b.nm, /감리/) && has(b.nm, /전기|소방/)},
+    {k: 'nara', label: '전기·소방 감리', rule: '전기+감리, 소방+감리', f: b => matchRule(b.nm, NARA_GROUPS) >= 0},
     {k: 'elec', label: '전기공사', f: b => b.div === '공사' && (has(b.ind, /전기공사/) || (has(b.nm, /전기/) && !has(b.nm, /정보통신|통신|소방/)))},
     {k: 'sup', label: '감리', f: b => has(b.nm, /감리/) || has(b.ind, /감리|전력기술관리/)},
     {k: 'fire', label: '소방', f: b => has(b.nm, /소방/) || has(b.ind, /소방/)},
@@ -38,13 +83,13 @@
   function customFilter(c) {
     c = c || {};
     const list = s => (s || '').split(',').map(x => x.trim()).filter(Boolean);
-    // 포함 키워드: 쉼표(,)는 '하나라도', 더하기(+)는 '모두'. 예) 전기+감리, 소방+감리
-    const inc = list(c.inc).map(g => g.split('+').map(x => x.trim()).filter(Boolean)).filter(g => g.length);
-    const exc = list(c.exc), ind = list(c.ind), inst = list(c.inst), rgn = list(c.rgn), mth = list(c.mth);
+    // 공고명 키워드: 쉼표(,)는 '하나라도', 더하기(+)는 '모두', 띄어쓰기 무시. 예) 전기+감리, 소방+감리
+    const inc = parseRule(c.inc);
+    const exc = list(c.exc).map(norm), ind = list(c.ind), inst = list(c.inst), rgn = list(c.rgn), mth = list(c.mth);
     const mn = parseFloat(c.min) * 1e8, mx = parseFloat(c.max) * 1e8;
     return b => {
-      if (inc.length && !inc.some(g => g.every(k => (b.nm || '').includes(k)))) return false;
-      if (exc.some(k => (b.nm || '').includes(k))) return false;
+      if (inc.length && matchRule(b.nm, inc) < 0) return false;
+      if (exc.some(k => norm(b.nm).includes(k))) return false;
       if (c.div && b.div !== c.div) return false;
       if (ind.length && !ind.some(k => (b.ind || '').includes(k))) return false;
       if (inst.length && !inst.some(k => (b.inst || '').includes(k) || (b.dinst || '').includes(k))) return false;
@@ -60,7 +105,8 @@
   function categoryFilter(keys, custom) {
     const set = new Set(keys);
     const fs = [...CATS, ...MORE].filter(c => set.has(c.k)).map(c => c.f);
-    if (set.has('custom')) fs.push(customFilter(custom));
+    // 사용자 지정은 조건을 하나라도 넣었을 때만 (빈 채로 켜면 전체가 잡히는 것을 막음)
+    if (set.has('custom') && Object.values(custom || {}).some(v => String(v ?? '').trim())) fs.push(customFilter(custom));
     return fs.length ? (b => fs.some(f => f(b))) : (() => true);
   }
   function categoryLabel(keys) {
@@ -371,7 +417,7 @@
 
   const G2B = {CATS, MORE, BUCKETS, customFilter, categoryFilter, categoryLabel, periodRange,
     quantile, median, mean, wilson, isFail, ymKey, bssBucket, curve, argmax, simSj, fmtS,
-    strategy, bands, calc, listRows, toCsv, g2bUrl, compete, fail, upcoming, mine, prepare};
+    strategy, bands, calc, listRows, toCsv, g2bUrl, parseRule, matchRule, keywordCheck, norm, NARA_GROUPS, compete, fail, upcoming, mine, prepare};
   if (typeof module !== 'undefined' && module.exports) module.exports = G2B;
   else root.G2B = G2B;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -101,6 +101,8 @@ function buildControls() {
     const el = $('#c_' + k); el.value = S.custom[k] ?? '';
     el.oninput = () => { S.custom[k] = el.value; save(); clearTimeout(el._t); el._t = setTimeout(render, 250); };
   });
+  if ($('#c_rules') && !$('#c_rules').innerHTML) $('#c_rules').innerHTML = rulesHtml();
+  if ($('#c_check')) $('#c_check').onclick = () => { S.tab = 'data'; S.dpage = 0; save(); buildControls(); render(); window.scrollTo(0, 0); };
   const pr = $('#perrow'); pr.querySelectorAll('.chip').forEach(x => x.remove());
   PERIODS.forEach(([k, l]) => pr.appendChild(chip(l, S.period === k, () => { S.period = k; save(); buildControls(); render(); })));
   const tb = $('#tabs'); tb.innerHTML = '';
@@ -145,7 +147,7 @@ function render() {
   if (S.tab === 'compete') return viewCompete(v, A.compete(sel));
   if (S.tab === 'fail') return viewFail(v, A.fail(sel));
   if (S.tab === 'mine') return viewMine(v, A.mine(sel));
-  if (S.tab === 'data') return viewData(v, sel);
+  if (S.tab === 'data') return viewData(v, sel, D.bids.filter(b => b._d >= from && b._d <= to));
 }
 
 /* ---------- 가격 전략 (사정률 구간) */
@@ -313,7 +315,54 @@ function viewMine(v, M) {
 const DSORT = {dt: (a, b) => (b.b._d - a.b._d), n: (a, b) => (b.b.n - a.b.n), bss: (a, b) => ((b.b.bss || 0) - (a.b.bss || 0)),
   win: (a, b) => (a.outcome === '1순위' ? 0 : 1) - (b.outcome === '1순위' ? 0 : 1) || (b.b._d - a.b._d)};
 const PAGE = 50;
-function viewData(v, sel) {
+/* 키워드 규칙 안내 (사용자 지정 칸과 데이터 목록에서 같이 씀) */
+const RULE_EXAMPLES = [
+  ['전기+감리', "'전기'와 '감리'가 모두 들어간 공고 (순서·위치 상관없음)", '감리자(전기), 감리업자(전기), 전기감리자, 전기공사 감리용역', '소방감리자, 감리자(건축)'],
+  ['전기+감리자', "'전기'와 '감리자'가 모두 들어간 공고", '감리자(전기), 전기감리자, 전기(감리자)', '전기공사 감리용역 (감리자 아님), 감리업자(전기)'],
+  ['전기감리자', "'전기감리자'가 붙은 그대로 들어간 공고", '전기감리자 모집, 전기 감리자 모집(띄어쓰기 무시)', '감리자(전기), 전기공사 감리용역'],
+  ['전기+감리, 소방+감리', "쉼표는 '하나라도' — 둘 중 하나라도 맞으면", '감리자(전기), 감리자(소방), 소방감리자', '감리자(건축), 전기공사(감리 없음)'],
+];
+function rulesHtml() {
+  return `<div class="tablewrap"><table class="rules"><tr><th>입력</th><th>뜻</th><th>찾는 예</th><th>못 찾는 예</th></tr>${
+    RULE_EXAMPLES.map(([k, m, y, n]) => `<tr><td><code>${esc(k)}</code></td><td>${esc(m)}</td><td>${esc(y)}</td><td class="muted">${esc(n)}</td></tr>`).join('')}</table></div>
+    <p class="note"><b>+</b> 는 모두, <b>쉼표(,)</b> 는 하나라도. 띄어쓰기는 무시합니다(<code>전기감리</code> = "전기 감리"). 빼고 싶은 말은 '제외 키워드' 칸에 쉼표로 넣으세요(예: 건축, 소방서).</p>`;
+}
+/* 공고명에서 키워드를 형광 표시 */
+function hl(nm, words) {
+  let h = esc(nm);
+  [...new Set(words)].filter(Boolean).sort((a, b) => b.length - a.length).forEach(w => { h = h.split(esc(w)).join(`<mark>${esc(w)}</mark>`); });
+  return h.replace(/<mark>([^<]*)<mark>([^<]*)<\/mark>([^<]*)<\/mark>/g, '<mark>$1$2$3</mark>');
+}
+function activeRules() {
+  const out = [];
+  if (S.cats.includes('nara')) out.push({name: "업종 버튼 '전기·소방 감리'", text: '전기+감리, 소방+감리', groups: A.NARA_GROUPS});
+  if (S.cats.includes('custom') && (S.custom.inc || '').trim()) out.push({name: '사용자 지정 키워드', text: S.custom.inc, groups: A.parseRule(S.custom.inc)});
+  return out;
+}
+function keywordCard(all) {
+  const rules = activeRules();
+  if (!rules.length) return card('검색어 확인', "업종 버튼 '전기·소방 감리'나 사용자 지정 키워드를 고르면, 어떤 공고가 잡히고 어떤 공고가 왜 빠졌는지 여기서 확인할 수 있습니다.", `<details class="rulehelp"><summary>키워드 규칙 보기</summary>${rulesHtml()}</details>`);
+  return rules.map(r => {
+    const K = A.keywordCheck(all, r.groups);
+    const meaning = r.groups.map(g => g.length > 1 ? '(' + g.map(w => `'${w}'`).join(' 그리고 ') + ')' : `'${g[0]}'`).join(' 또는 ');
+    const words = r.groups.flat();
+    const link = b => `<a href="${esc(A.g2bUrl(b.id))}" target="_blank" rel="noopener" class="num">${esc(b.id)}</a>`;
+    const miss = Object.entries(K.missCount).sort((a, b) => b[1] - a[1]);
+    const recent = arr => arr.slice().sort((a, b) => b.b._d - a.b._d);
+    return card(`검색어 확인 — ${esc(r.name)}`, `입력 <code>${esc(r.text)}</code> → 공고명에 ${esc(meaning)}이 들어간 공고 (띄어쓰기 무시). 지금 기간의 전체 공사·용역 입찰 ${fmt(all.length)}건에서 확인했습니다.`, `
+      <div class="kpis">
+        <div class="kpi"><div class="k">잡힌 공고</div><div class="v">${fmt(K.matched.length)}건</div><div class="s">아래 목록에서 낱말이 형광으로 표시됩니다</div></div>
+        <div class="kpi"><div class="k">애매하게 잡힌 공고</div><div class="v">${fmt(K.ambiguous.length)}건</div><div class="s">낱말이 다른 말(전기차·소방서 등) 속에만 있음</div></div>
+        <div class="kpi"><div class="k">비슷하지만 빠진 공고</div><div class="v">${fmt(K.near.length)}건</div><div class="s">${miss.slice(0, 2).map(([k, c]) => `${esc(k)} ${fmt(c)}`).join(' · ')}</div></div>
+      </div>
+      ${K.ambiguous.length ? `<h3 class="sub">애매하게 잡힌 공고 — 확인 후 필요하면 제외 키워드에 넣으세요</h3>` + table([['개찰일'], ['공고'], ['이유']],
+        recent(K.ambiguous).slice(0, 30).map(x => tr([[x.b.dt, 'num'], `${link(x.b)}<br>${hl(x.b.nm, words)}`, `<span class="pill warn">${esc(x.why)}</span>`]))) : ''}
+      ${miss.map(([why, c]) => `<details class="nearlist"><summary>빠진 공고: ${esc(why)} — ${fmt(c)}건 (최근 20건 보기)</summary>` +
+        table([['개찰일'], ['공고']], recent(K.near.filter(x => x.why === why)).slice(0, 20).map(x => tr([[x.b.dt, 'num'], `${link(x.b)}<br>${hl(x.b.nm, words)}`]))) + '</details>').join('')}
+      <details class="rulehelp"><summary>키워드 규칙 보기</summary>${rulesHtml()}</details>`);
+  }).join('');
+}
+function viewData(v, sel, all) {
   const sNum = parseFloat(S.verifyS);
   const L = A.listRows(sel, isFinite(sNum) && sNum > 0 ? sNum : null);
   const q = (S.dq || '').trim();
@@ -324,8 +373,9 @@ function viewData(v, sel) {
   rows = rows.slice().sort(DSORT[S.dsort] || DSORT.dt);
   const pages = Math.max(1, Math.ceil(rows.length / PAGE)), pg = Math.min(S.dpage || 0, pages - 1);
   const whyTxt = Object.entries(L.why).map(([k, c]) => `${k} ${fmt(c)}`).join(' · ') || '없음';
+  const hlWords = activeRules().flatMap(r => r.groups.flat());
   const pill = o => o === '1순위' ? '<span class="pill ok">1순위</span>' : o === '하한 미달' ? '<span class="pill warn">하한 미달</span>' : o ? `<span class="pill">${o}</span>` : '';
-  v.innerHTML = kpis([
+  v.innerHTML = keywordCard(all || sel) + kpis([
     ['목록', fmt(L.total) + '건', esc(A.categoryLabel(S.cats))],
     ['가격 분석에 쓰인 입찰', fmt(L.used) + '건', `빠진 것: ${esc(whyTxt)}`],
     ...(L.s ? [[`사정률 ${A.fmtS(L.s)}로 넣었다면`, pct(L.rate, 2), `1순위 ${fmt(L.wins)}건 · 하한 미달 ${fmt(L.below)}건 / ${fmt(L.used)}건`]] : []),
@@ -342,7 +392,7 @@ function viewData(v, sel) {
     ${rows.length ? '<div class="dlist">' + table([['개찰일'], ...(L.s ? [['검증']] : []), ['공고번호·공고명'], ['기관'], ['방법·결과'], ['기초금액', 'r'], ['하한율 / 실제 사정률', 'r'], ['참가', 'r'], ['1순위 업체'], ['1순위 투찰금액', 'r'], ['1순위 사정률', 'r'], ...(S.dview === 'used' ? [] : [['분석']])],
       rows.slice(pg * PAGE, (pg + 1) * PAGE).map(r => { const b = r.b; return tr([
         [b.dt, 'num'], ...(L.s ? [pill(r.outcome) || '<span class="muted">–</span>'] : []),
-        [`<a href="${esc(r.url)}" target="_blank" rel="noopener" class="num">${esc(b.id)}</a><br>${esc(b.nm)}`, 'wrap nm'],
+        [`<a href="${esc(r.url)}" target="_blank" rel="noopener" class="num">${esc(b.id)}</a><br>${hl(b.nm, hlWords)}`, 'wrap nm'],
         [esc(b.inst), 'wrap'], [`${esc(b.mth)}<br><span class="muted">${esc(b.res)}</span>`, 'wrap'],
         R(b.bss ? fmt(b.bss) : '–'), R(`${b.fl != null ? fmt(b.fl, 3) : '–'}<br><span class="muted">${fmt(r.sjActual, 3)}</span>`),
         R(`${fmt(b.n)}<br><span class="muted">순위권 ${fmt(b.nr)}</span>`), [esc(b.wc || '–'), 'wrap'],

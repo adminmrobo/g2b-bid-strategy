@@ -20,6 +20,11 @@ const k = A.calc({bss: 5e8, fl: 87.745, span: 0.03, s: 100}, s.bids); assert(k.a
 const nara = A.categoryFilter(['nara'], {}), viaCustom = A.categoryFilter(['custom'], {inc: '전기+감리, 소방+감리'});
 assert(D.bids.every(b => nara(b) === viaCustom(b)), 'preset == custom syntax');
 assert(nara({nm: '주택건설공사 감리자(전기) 모집'}) && nara({nm: '소방감리자 모집'}) && nara({nm: '전기(감리자)'}) && !nara({nm: '전기공사'}) && !nara({nm: '건축 감리'}), 'nara rule');
-const cu = A.categoryFilter(['custom'], {inc: '소방', min: '1'}); assert(D.bids.filter(cu).every(b => b.nm.includes('소방') && (b.bss ?? b.ps) >= 1e8), 'custom');
+const cu = A.categoryFilter(['custom'], {inc: '소방', min: '1'}); assert(D.bids.filter(cu).every(b => A.norm(b.nm).includes('소방') && (b.bss ?? b.ps) >= 1e8), 'custom');
+assert(D.bids.filter(A.categoryFilter(['nara', 'custom'], {})).length === D.bids.filter(A.categoryFilter(['nara'], {})).length, 'empty custom ignored');
+const R = (r, n) => A.matchRule(n, A.parseRule(r)) >= 0;
+[['전기+감리', '감리자(전기) 모집', true], ['전기+감리', '전기공사 감리용역', true], ['전기+감리', '소방감리자', false],
+ ['전기+감리자', '감리자(전기)', true], ['전기+감리자', '전기공사 감리용역', false], ['전기감리자', '감리자(전기)', false],
+ ['전기감리자', '전기 감리자 모집', true], ['전기+감리, 소방+감리', '소방감리자', true]].forEach(([r, n, e]) => assert(R(r, n) === e, `rule ${r} | ${n}`));
 console.log('analysis OK', {n: s.n, top: s.bands[0].label, p: s.bands[0].p, score: {rate: s.score.rate, base: s.score.base, good: s.score.good},
   nMed: c.nMed, failRate: f.rate, upcoming: u.rows.length, mine: m.count});
