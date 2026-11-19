@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>입찰 전략실</title>
+<title>입찰 봇</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -215,13 +215,46 @@ body.noscroll{overflow:hidden}
 #tbub.sheet img{width:60px;height:60px}
 @media (prefers-reduced-motion:reduce){#tspot{transition:none}.gstop{transition:none}}
 footer{font-size:12px;color:var(--muted);padding:20px 0 40px}
+/* ---------- 첫 화면·메뉴 (home.js) ---------- */
+a.brand{color:var(--ink);text-decoration:none}
+nav.menu{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:2px 0 10px}
+nav.menu a{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:6px 14px;
+  font-size:14px;color:var(--ink);text-decoration:none;white-space:nowrap}
+nav.menu a b{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--soft);font-family:var(--mono);font-size:12px}
+nav.menu a[aria-current="page"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+nav.menu a[aria-current="page"] b{background:color-mix(in srgb,var(--accent-ink) 25%,transparent)}
+#stratbar.off{display:none}
+.hero{display:flex;align-items:flex-end;gap:14px;margin:4px 0 18px}
+.hero img{width:88px;height:88px;flex:none}
+.hero h1{margin:0;font-size:clamp(20px,3vw,26px);line-height:1.3;word-break:keep-all}
+.hero p{margin:4px 0 0;color:var(--muted);font-size:14px;word-break:keep-all}
+.homegrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:24px}
+@media (max-width:760px){.homegrid{grid-template-columns:1fr}}
+a.hcard{display:grid;grid-template-columns:72px 1fr;gap:14px;align-items:start;background:var(--panel);border:1px solid var(--line);border-top:4px solid var(--who);
+  border-radius:16px;padding:16px;color:var(--ink);text-decoration:none;transition:transform .15s,box-shadow .15s}
+a.hcard:hover,a.hcard:focus-visible{transform:translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,.1)}
+a.hcard img{width:72px;height:72px}
+.hcard .hno{font-family:var(--mono);font-size:12px;color:var(--who);font-weight:600}
+.hcard h2{margin:0 0 6px;font-size:17px}
+.hcard .hstats{display:flex;flex-wrap:wrap;gap:6px 16px;margin:6px 0}
+.hcard .hstat{font-size:12px;color:var(--muted)}
+.hcard .hstat b{display:block;font-family:var(--mono);font-size:20px;color:var(--ink);font-weight:600}
+.hcard .hdesc{font-size:13px;color:var(--muted);word-break:keep-all}
+.hcard .go{font-size:13px;color:var(--accent);font-weight:600}
+@media (prefers-reduced-motion:reduce){a.hcard{transition:none}}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;margin:0 0 12px}
+.toolbar .field{min-width:220px;flex:1}
+.toolbar .field.sm{min-width:140px;flex:0 1 160px}
+tr.pri td{background:color-mix(in srgb,var(--accent-soft) 55%,transparent)}
+.stale{border-left:4px solid var(--warn);background:var(--soft);padding:10px 14px;border-radius:0 10px 10px 0;font-size:14px;margin-bottom:14px}
+td .nm{min-width:220px;max-width:420px;white-space:normal;word-break:keep-all}
 </style>
 </head>
 <body>
 <section id="lock">
   <form class="lockbox" id="lockform" autocomplete="off">
     <div class="lockhi"><img src="img/char/asst_e13.webp" alt="" aria-hidden="true"><div class="bubble"><b>조수 하루</b><br>어서 오세요. 비밀번호를 넣으면 연구실 문이 열려요.</div></div>
-    <h1>입찰 전략실</h1>
+    <h1>입찰 봇</h1>
     <p>내부 전용입니다. 비밀번호를 입력하면 데이터가 열립니다.</p>
     <input id="pw" type="password" inputmode="text" placeholder="비밀번호" aria-label="비밀번호" autofocus>
     <button class="btn primary" id="unlock" type="submit">열기</button>
@@ -233,12 +266,20 @@ footer{font-size:12px;color:var(--muted);padding:20px 0 40px}
   <header class="top">
     <div class="wrap">
       <div class="bar">
-        <div class="brand">입찰 전략실<small id="asof"></small></div>
+        <a class="brand" href="#home" title="첫 화면으로">입찰 봇<small id="asof"></small></a>
         <div class="spacer"></div>
         <button class="iconbtn" id="guidebtn" title="안내 지도 열기">사용법</button>
         <button class="iconbtn" id="theme" title="화면 밝기">밝기</button>
         <button class="iconbtn" id="lockbtn">잠그기</button>
       </div>
+      <nav class="menu" id="menu" aria-label="메뉴">
+        <a href="#home" data-mode="home">홈</a>
+        <a href="#today" data-mode="today"><b>1</b>오늘의 입찰·낙찰 결과</a>
+        <a href="#week" data-mode="week"><b>2</b>이번 주 낙찰 사정률</a>
+        <a href="#strategy" data-mode="strategy"><b>3</b>입찰 전략</a>
+        <a href="#all" data-mode="all"><b>4</b>전체 낙찰 결과</a>
+      </nav>
+      <div id="stratbar">
       <div class="filters">
         <div class="row" id="catrow"><span class="lbl">업종</span></div>
         <div class="more" id="morerow"></div>
@@ -260,6 +301,7 @@ footer{font-size:12px;color:var(--muted);padding:20px 0 40px}
         <div class="row" id="perrow"><span class="lbl">기간</span></div>
       </div>
       <nav class="tabs" id="tabs" role="tablist"></nav>
+      </div>
     </div>
   </header>
   <main class="wrap">
@@ -273,5 +315,6 @@ footer{font-size:12px;color:var(--muted);padding:20px 0 40px}
 <script src="analysis.js"></script>
 <script src="guide.js"></script>
 <script src="app.js"></script>
+<script src="home.js"></script>
 </body>
 </html>

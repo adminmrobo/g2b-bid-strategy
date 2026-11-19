@@ -65,12 +65,29 @@ function onLoaded() {
     : st.left ? ` · 남은 작업 ${fmt(st.left)}개(매일 자동으로 이어받음)` : '';
   $('#foot').innerHTML = `데이터: 조달청 공공데이터개방표준서비스(낙찰·입찰공고). 적재 현황 ${esc(cov)}${esc(backfill)}` +
     `<br>확률은 과거 자료로 추정한 값이며 낙찰을 보장하지 않습니다. 투찰은 나라장터에서 직접 하십시오.`;
+  MODE = modeFromHash();
   buildControls(); render();
-  if (window.Guide && Guide.firstVisit()) setTimeout(Guide.open, 300);   // 처음 연 사람에게만 안내 지도
 }
-$('#guidebtn').addEventListener('click', () => window.Guide && Guide.open());
+/* ------------------------------------------------------------ 화면 전환 (첫 화면 → 메뉴 1~4)
+ * 주소 끝의 #home · #today · #week · #strategy · #all 로 화면을 고른다. 3번(#strategy)이 기존 입찰 전략 화면이다. */
+const MODES = ['home', 'today', 'week', 'strategy', 'all'];
+let MODE = 'home';
+const modeFromHash = () => { const h = location.hash.replace(/^#\/?/, ''); return MODES.includes(h) ? h : 'home'; };
+function setMode(m) {
+  if (location.hash !== '#' + m) location.hash = m;   // hashchange 가 render 를 부른다
+  else if (MODE !== m) { MODE = m; render(); }
+}
+window.addEventListener('hashchange', () => { const m = modeFromHash(); if (m !== MODE) { MODE = m; if (D) { render(); window.scrollTo(0, 0); } } });
+let guideShown = false;
+$('#guidebtn').addEventListener('click', () => {
+  if (!window.Guide) return;
+  if (MODE !== 'strategy') { setMode('strategy'); setTimeout(Guide.open, 150); } else Guide.open();
+});
 /* 안내 지도(guide.js)가 탭을 바꿀 때 쓰는 연결 고리 */
-window.G2BUI = {go(tab) { if (S.tab !== tab) { S.tab = tab; save(); buildControls(); render(); } }};
+window.G2BUI = {go(tab) {
+  if (MODE !== 'strategy') { MODE = 'strategy'; history.replaceState(null, '', '#strategy'); render(); }
+  if (S.tab !== tab) { S.tab = tab; save(); buildControls(); render(); }
+}};
 
 /* ------------------------------------------------------------ 상태·조작부 */
 const PERIODS = [['1', '1개월'], ['3', '3개월'], ['6', '6개월'], ['12', '1년']];
@@ -134,6 +151,14 @@ const R = v => [v, 'r num'];
 function render() {
   if (!D) return;
   charts.forEach(c => c.destroy()); charts = [];
+  document.querySelectorAll('#menu a').forEach(a => { if (a.dataset.mode === MODE) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+  $('#stratbar').classList.toggle('off', MODE !== 'strategy');
+  if (MODE !== 'strategy') {
+    $('#scope').innerHTML = '';
+    if (window.Home) Home.render(MODE, $('#view'));
+    return;
+  }
+  if (!guideShown && window.Guide && Guide.firstVisit()) { guideShown = true; setTimeout(Guide.open, 300); }   // 입찰 전략을 처음 연 사람에게만 안내 지도
   const cf = A.categoryFilter(S.cats, S.custom);
   const [from, to] = A.periodRange(D.meta.last || D.meta.today, parseInt(S.period, 10));
   const sel = D.bids.filter(b => b._d >= from && b._d <= to && cf(b));
