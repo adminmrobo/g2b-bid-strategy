@@ -94,8 +94,11 @@ class Resp:
     def __init__(self, t): self.text = t
 
 class MockSession:
-    def __init__(self, server_max_rows=500):
+    def __init__(self, server_max_rows=500, notice_one_day_only=True, notice_down=False):
         self.calls = 0; self.server_max_rows = server_max_rows
+        # 2026-11-11 이후 실제 API처럼: 공고를 여러 날 범위로 물으면 오류 없이 0건
+        self.notice_one_day_only = notice_one_day_only
+        self.notice_down = notice_down
     def get(self, url, params, timeout):
         self.calls += 1
         assert "%" not in params["serviceKey"], "키가 이중 인코딩됨"
@@ -104,7 +107,11 @@ class MockSession:
             assert params["opengBgnDt"][:8] == params["opengEndDt"][:8], "1일 제한 위반"
             allr = day_bids(params["opengBgnDt"][:8], str(params["bsnsDivCd"]))
         else:
-            allr = month_notices(params["bidNtceBgnDt"], params["bidNtceEndDt"])
+            multi = params["bidNtceBgnDt"][:8] != params["bidNtceEndDt"][:8]
+            if self.notice_down or (self.notice_one_day_only and multi):
+                allr = []
+            else:
+                allr = month_notices(params["bidNtceBgnDt"], params["bidNtceEndDt"])
         nr = min(int(params["numOfRows"]), self.server_max_rows); p = int(params["pageNo"])
         it = allr[(p - 1) * nr: p * nr]
         if not allr:

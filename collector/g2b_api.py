@@ -143,8 +143,21 @@ class Client:
         })
 
     def notices(self, bgn_yyyymmddhhmm, end_yyyymmddhhmm):
-        """입찰공고정보(공고일시 범위 ≤ 1개월)."""
+        """입찰공고정보(한 번의 공고일시 범위)."""
         return self._paged(OP_NOTICE, {
             "bidNtceBgnDt": bgn_yyyymmddhhmm,
             "bidNtceEndDt": end_yyyymmddhhmm,
         })
+
+    def notices_days(self, first_day, last_day):
+        """입찰공고정보를 하루씩 나눠 받아 합친다.
+        2026-11-11부터 한 달 범위 조회가 오류 없이 0건으로 돌아와(낙찰 1일 조회는 정상),
+        낙찰처럼 하루 단위로 묻는다. 하루 몇십 회 더 들지만 범위 제한이 바뀌어도 안전하다."""
+        import datetime as _dt
+        out, total, d = [], 0, first_day
+        while d <= last_day:
+            it, t = self.notices(f"{d:%Y%m%d}0000", f"{d:%Y%m%d}2359")
+            out.extend(it)
+            total += t
+            d += _dt.timedelta(days=1)
+        return out, total

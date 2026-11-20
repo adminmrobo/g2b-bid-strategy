@@ -108,9 +108,14 @@ def collect(days_back, budget, max_minutes, refresh_days, notice_months, session
         cur["label"] = f"공고 {y}-{m:02d}"
         last = calendar.monthrange(y, m)[1]
         end = min(dt.date(y, m, last), td)
-        rows, total = cli.notices(f"{y:04d}{m:02d}010000", f"{end:%Y%m%d}2359")
+        rows, total = cli.notices_days(dt.date(y, m, 1), end)
         nts = summarize_notices(rows)
         p = notice_path(y, m)
+        prev = man.get(rel(p), {}).get("n") or 0
+        if not nts and prev:
+            # 이미 받아 둔 공고를 0건으로 덮어쓰지 않는다(API 이상일 가능성이 큼). 실행 화면에 경고로 남긴다.
+            log(f"::warning::공고 {y}-{m:02d} 이 0건으로 왔습니다. 기존 {prev:,}건을 그대로 둡니다 — 조달청 API를 확인하세요.")
+            return
         changed = cs.write_if_changed(p, nts, pw, man, {"n": len(nts), "rows": total, "at": now,
                                                         "complete": end == dt.date(y, m, last)}, key=rel(p))
         log(f"  공고 {y}-{m:02d}  원자료 {total:>7,}  공사·용역 {len(nts):>6,}  {'변경' if changed else '동일'}  (호출 {cli.calls})")

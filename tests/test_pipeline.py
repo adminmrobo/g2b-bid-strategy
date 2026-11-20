@@ -34,6 +34,17 @@ except Exception as e:
 # store 파일이 평문이 아닌지
 blob = open(os.path.join(run.STORE, "scsbid", "3", sorted(os.listdir(os.path.join(run.STORE, "scsbid", "3")))[0]), "rb").read()
 assert "전기".encode() not in blob
+n_notice = sum(e.get("n", 0) for k, e in run.load_manifest().items() if "/notice/" in k)
+assert n_notice > 0, "공고가 0건 — 하루 단위 조회가 안 됨"
+assert d["meta"]["n_upcoming"] > 0, "진행 공고가 0건"
+print("notices", n_notice, "upcoming", d["meta"]["n_upcoming"])
+# API가 공고를 0건으로 돌려줘도 기존 공고를 덮어쓰지 않아야 한다
+before = {k: dict(e) for k, e in run.load_manifest().items() if "/notice/" in k}
+run.collect(days_back=40, budget=50000, max_minutes=10, refresh_days=3, notice_months=3,
+            session=MockSession(notice_down=True))
+after = {k: e for k, e in run.load_manifest().items() if "/notice/" in k}
+assert all(after[k]["n"] == before[k]["n"] and after[k]["h"] == before[k]["h"] for k in before), "0건이 기존 공고를 덮어씀"
+print("empty-notice guard ok")
 print("OK")
 shutil.rmtree(run.STORE, ignore_errors=True)
 

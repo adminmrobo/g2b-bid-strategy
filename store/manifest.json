@@ -98,18 +98,18 @@
 "rows": 33153
 },
 "store/notice/202610.bin": {
-"at": "2026-11-20 10:47",
+"at": "2026-11-10 11:45",
 "complete": true,
-"h": "4f53cda18c2baa0c",
-"n": 0,
-"rows": 0
+"h": "fecd4f9fb92e605a",
+"n": 24024,
+"rows": 37502
 },
 "store/notice/202611.bin": {
-"at": "2026-11-20 10:47",
+"at": "2026-11-10 11:45",
 "complete": false,
-"h": "4f53cda18c2baa0c",
-"n": 0,
-"rows": 0
+"h": "e480bf2369ba80fe",
+"n": 8573,
+"rows": 12974
 },
 "store/scsbid/3/20251002.bin": {
 "at": "2026-11-05 09:55",
